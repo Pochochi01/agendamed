@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Clases de componente reutilizables.
+ * Se definen con @layer components para que Tailwind pueda sobreescribirlas
+ * con utilidades puntuales (ej: <button class="btn btn-primario w-full">).
+ */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium
+           transition focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed
+           disabled:opacity-50;
+  }
+  .btn-primario   { @apply btn bg-marca-600 text-white hover:bg-marca-700 focus:ring-marca-500; }
+  .btn-secundario { @apply btn bg-white text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:ring-marca-500; }
+  .btn-peligro    { @apply btn bg-rose-600 text-white hover:bg-rose-700 focus:ring-rose-500; }
+  .btn-exito      { @apply btn bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-500; }
+  .btn-sm         { @apply px-3 py-1.5 text-xs; }
+
+  .input {
+    @apply block w-full rounded-lg border-0 bg-white px-3 py-2 text-slate-900 shadow-sm
+           ring-1 ring-inset ring-slate-300 placeholder:text-slate-400
+           focus:ring-2 focus:ring-inset focus:ring-marca-600 sm:text-sm;
+  }
+  .input-error { @apply ring-rose-400 focus:ring-rose-500; }
+
+  .label { @apply mb-1 block text-sm font-medium text-slate-700; }
+
+  .card  { @apply rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200; }
+
+  .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium; }
+  .badge-verde   { @apply badge bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200; }
+  .badge-rojo    { @apply badge bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200; }
+  .badge-amarillo{ @apply badge bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200; }
+  .badge-azul    { @apply badge bg-marca-50 text-marca-700 ring-1 ring-inset ring-marca-200; }
+  .badge-gris    { @apply badge bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200; }
+
+  .tabla       { @apply min-w-full divide-y divide-slate-200 text-sm; }
+  .tabla thead { @apply bg-slate-50; }
+  .tabla th    { @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500; }
+  .tabla td    { @apply px-4 py-3 text-slate-700; }
+  .tabla tbody { @apply divide-y divide-slate-100; }
+}
+
+/* Scrollbar discreto para las grillas de la agenda. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { @apply rounded-full bg-slate-300; }
+::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }
