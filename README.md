@@ -81,7 +81,7 @@ El migrador lleva registro en la tabla `migraciones`, así que se puede correr l
 
 Ver **[DEPLOY.md](DEPLOY.md)** para la guía completa en un VPS (Nginx + PM2 + MySQL + HTTPS).
 
-> El dictado por voz **requiere HTTPS**: los navegadores solo habilitan la Web Speech API en contextos seguros. Sobre `http://` esa función no arranca.
+> El dictado por voz **requiere HTTPS**: los navegadores solo habilitan `getUserMedia` y `MediaRecorder` en contextos seguros. Sobre `http://` esa función no arranca.
 
 > `.env` ya fue creado a partir del ejemplo. **Ajustá `DB_PASSWORD` con la contraseña de tu MySQL** antes de correr la migración, y reemplazá `JWT_SECRET` por un valor aleatorio:
 > ```bash
@@ -174,7 +174,7 @@ Se evaluó la alternativa del enunciado —`multer.memoryStorage()` + `@xenova/t
 El audio **sí llega al servidor** (es lo que permite transcribirlo de una pasada), pero no se persiste en ningún punto del recorrido:
 
 - `multer` usa **`memoryStorage()`**, nunca `diskStorage`: el archivo vive como `Buffer` en RAM;
-- **un solo endpoint** de toda la API acepta `multipart/form-data` (`POST /api/transcripcion`), con lista blanca de tipos y límite de tamaño;
+- **un solo endpoint** de toda la API acepta `multipart/form-data` (`POST /api/historia/transcribir`), con lista blanca de tipos y límite de tamaño;
 - ffmpeg decodifica **por tuberías** (`pipe:0` → `pipe:1`): no hay archivos temporales ni `writeFile`;
 - el controlador **libera el buffer** en un `finally` (`buffer = null; req.file.buffer = null`);
 - `historias_clinicas` **no tiene** ninguna columna de audio, blob o archivo — la base entera no tiene una sola columna BLOB;
@@ -190,7 +190,7 @@ Las 22 condiciones están verificadas en las pruebas, sobre el código ejecutabl
 
 Verificado con audio real de 30 KB en cinco variantes (data-URI, mayúsculas, base64 crudo, base64 escondido en una frase) y contra falsos positivos con texto clínico legítimo, incluido uno de 5.000 caracteres y valores tipo `TA 130/85`.
 
-**Transcribir y guardar son dos pasos separados, a propósito.** `POST /api/transcripcion` devuelve el texto y termina; el guardado sigue pasando por `POST /pacientes/:id/historia`, que no cambió. Así el médico **revisa** la transcripción antes de que entre a la historia clínica —un modelo de voz se equivoca con la terminología médica y nada debería persistirse sin que un humano lo lea— y la ruta de guardado conserva intactas sus validaciones y su control de acceso.
+**Transcribir y guardar son dos pasos separados, a propósito.** `POST /api/historia/transcribir` devuelve el texto y termina; el guardado sigue pasando por `POST /pacientes/:id/historia`, que no cambió. Así el médico **revisa** la transcripción antes de que entre a la historia clínica —un modelo de voz se equivoca con la terminología médica y nada debería persistirse sin que un humano lo lea— y la ruta de guardado conserva intactas sus validaciones y su control de acceso.
 
 La transcripción es un **borrador editable**, y dictar otro tramo **suma** al texto en vez de reemplazarlo. Al guardar, la respuesta trae la lista completa, así que la evolución se renderiza al instante sin una segunda consulta. `origen: 'dictado'` queda registrado para saber qué textos conviene releer.
 
@@ -201,7 +201,7 @@ La transcripción es un **borrador editable**, y dictar otro tramo **suma** al t
 **1. Subir la grabación completa**
 
 ```http
-POST /api/transcripcion
+POST /api/historia/transcribir
 Authorization: Bearer <jwt del médico>
 Content-Type: multipart/form-data; boundary=----X
 

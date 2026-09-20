@@ -4,7 +4,7 @@
  * Si falta algo critico, el proceso muere temprano (fail fast) en vez de
  * fallar a mitad de una request.
  */
-require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
+require('dotenv').config({ path: require('path').join(__dirname,'../../.env') });
 
 const requeridas = ['DB_HOST', 'DB_USER', 'DB_NAME', 'JWT_SECRET'];
 const faltantes = requeridas.filter((k) => !process.env[k]);

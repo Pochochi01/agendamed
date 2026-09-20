@@ -49,7 +49,7 @@ export const agendaApi = {
  * revisa y lo guarda con pacientesApi.crearEvolucion.
  */
 export const transcripcionApi = {
-  estado: () => api.get('/transcripcion/estado').then((r) => r.data),
+  estado: () => api.get('/historia/transcribir/estado').then((r) => r.data),
 
   /**
    * @param {Blob} blob            audio completo de MediaRecorder
@@ -61,7 +61,7 @@ export const transcripcionApi = {
     const extension = (blob.type.split(';')[0].split('/')[1] || 'webm');
     formulario.append('audio', blob, `dictado.${extension}`);
 
-    return api.post('/transcripcion', formulario, {
+    return api.post('/historia/transcribir', formulario, {
       // Se deja que el navegador ponga el boundary del multipart.
       headers: { 'Content-Type': undefined },
       // La transcripcion puede tardar: se sube el timeout por encima del

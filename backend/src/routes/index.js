@@ -17,7 +17,16 @@ router.use('/reservar', require('./reservaPublica.routes'));
 router.use('/medicos', require('./medico.routes'));
 router.use('/agenda', require('./agenda.routes'));
 router.use('/pacientes', require('./paciente.routes'));
-// Dictado: recibe el audio completo, devuelve texto y lo descarta.
+/*
+ * Dictado: recibe el audio completo, devuelve texto y lo descarta.
+ *
+ * Se monta el MISMO router en dos rutas (no hay logica duplicada):
+ *   /api/historia/transcribir  -> nombre pedido en la especificacion, deja
+ *                                 claro a que modulo pertenece la funcion
+ *   /api/transcripcion         -> alias; la transcripcion en si no depende de
+ *                                 ningun paciente, es audio -> texto a secas
+ */
+router.use('/historia/transcribir', require('./transcripcion.routes'));
 router.use('/transcripcion', require('./transcripcion.routes'));
 router.use('/consultorios', require('./consultorio.routes'));
 router.use('/horarios', require('./horario.routes'));
