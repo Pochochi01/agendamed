@@ -139,19 +139,49 @@ Viven en el **paciente**, no en el turno: son datos persistentes de la persona, 
 
 ### 4. Historia clínica con dictado por voz
 
-**El audio nunca sale del navegador.** El reconocimiento lo hace la **Web Speech API nativa** del navegador ([useDictado.js](frontend/src/hooks/useDictado.js)) y el componente recibe solo el texto.
+**La grabación se transcribe de una sola pasada, al terminar.**
 
-> Se empezó con `react-speech-recognition`, pero el micrófono se activaba —Chrome mostraba el indicador y registraba la actividad— y `transcript` nunca se llenaba: los eventos `onresult` no llegaban al estado de React. Hablando con la API nativa se elimina esa capa y, sobre todo, se pueden enganchar `onerror` y `onend`, que el wrapper no expone. Ahí Chrome informa la causa real (`no-speech`, `network`, `not-allowed`, `audio-capture`, `service-not-allowed`), que antes se perdía en silencio. El hook además reanuda la sesión cuando Chrome la corta sola (~60 s o tras un silencio, aun con `continuous: true`), que es lo que hacía perder los dictados largos.
+```
+[Navegador]                          [Servidor]
+MediaRecorder ──► Blob completo ──►  multer.memoryStorage (Buffer en RAM)
+                  (POST multipart)        │
+                                          ├─► ffmpeg por tuberías → PCM 16 kHz
+                                          ├─► Whisper (una sola pasada)
+                                          └─► el Buffer se descarta
+                                                   │
+                        texto ◄─────────────────────┘
+                          │
+                  el médico lo revisa y corrige
+                          │
+                  POST /pacientes/:id/historia (JSON)  →  MySQL
+```
+
+> **Por qué se dejó el reconocimiento en tiempo real.** La Web Speech API transcribía mientras el médico hablaba, y eso **repetía palabras**: el navegador corta la sesión cada ~60 s, hay que reanudarla, y los tramos solapados duplican las frases del borde. Al procesar la grabación entera de una vez no hay estado acumulado entre tramos, así que la duplicación no puede ocurrir por construcción. Como red adicional, `limpiarTexto()` colapsa oraciones y palabras repetidas consecutivas, que es el artefacto típico de Whisper cuando el audio termina en silencio.
+
+### Dos proveedores, elegibles por `.env`
+
+| `TRANSCRIPCION_PROVEEDOR` | Dónde corre | Privacidad | Velocidad |
+|---|---|---|---|
+| `local` (por defecto) | Whisper en tu servidor (`@xenova/transformers`) | El audio **no sale de la máquina** | Depende del CPU |
+| `externo` | API compatible con OpenAI | El audio **viaja a un tercero** | Rápido siempre |
+
+Para historias clínicas conviene `local`. Medido en un equipo de escritorio con `Xenova/whisper-base`: **18,7 s para 8,4 s de audio** (≈2,2× tiempo real). En un VPS de 1 vCPU es bastante más lento — ver [DEPLOY.md](DEPLOY.md) antes de elegir.
+
+Modelos locales: `whisper-tiny` (~40 MB, rápido, confunde términos médicos), `whisper-base` (~80 MB, recomendado), `whisper-small` (~250 MB, mejor con terminología, más lento).
 
 Se evaluó la alternativa del enunciado —`multer.memoryStorage()` + `@xenova/transformers`— y se descartó: aunque el archivo se descarte enseguida, el audio igual viaja por la red y pasa por la memoria del servidor, sus logs y sus volcados. Con la Web Speech API ese dato **no se produce del lado servidor**, que es una garantía más fuerte que descartarlo a tiempo. En consecuencia:
 
-- `multer` y `@xenova/transformers` **no están** entre las dependencias;
-- ningún endpoint acepta `multipart/form-data`; el único body parser es `express.json`;
-- `historias_clinicas` **no tiene** ninguna columna de audio, blob o archivo;
-- el frontend no instancia `MediaRecorder` ni arma `Blob` o `FormData` (verificado sobre el código ejecutable, ignorando comentarios);
-- el dictado en sí no llama a `getUserMedia`: la Web Speech API abre el micrófono por su cuenta.
+El audio **sí llega al servidor** (es lo que permite transcribirlo de una pasada), pero no se persiste en ningún punto del recorrido:
 
-**Excepción acotada: el medidor de nivel.** [useNivelMicrofono.js](frontend/src/hooks/useNivelMicrofono.js) sí abre un stream con `getUserMedia`, porque es la única forma de saber si llega sonido al navegador cuando Chrome devuelve `no-speech` una y otra vez. Solo lee la **amplitud instantánea** con un `AnalyserNode`: no instancia `MediaRecorder`, no crea `Blob` ni `FormData`, no envía nada a la red, no acumula muestras (cada frame se descarta al siguiente) y no conecta el analizador a la salida, así que tampoco reproduce. Es opcional y explícito —solo se activa desde el panel de diagnóstico— y corta las pistas y cierra el `AudioContext` al detenerse o al desmontar. Las nueve condiciones están verificadas en las pruebas.
+- `multer` usa **`memoryStorage()`**, nunca `diskStorage`: el archivo vive como `Buffer` en RAM;
+- **un solo endpoint** de toda la API acepta `multipart/form-data` (`POST /api/transcripcion`), con lista blanca de tipos y límite de tamaño;
+- ffmpeg decodifica **por tuberías** (`pipe:0` → `pipe:1`): no hay archivos temporales ni `writeFile`;
+- el controlador **libera el buffer** en un `finally` (`buffer = null; req.file.buffer = null`);
+- `historias_clinicas` **no tiene** ninguna columna de audio, blob o archivo — la base entera no tiene una sola columna BLOB;
+- la ruta que guarda la evolución sigue aceptando **solo JSON**;
+- en el navegador, los trozos de `MediaRecorder` se sueltan tras armar el Blob, y no se guarda nada en `localStorage`, `sessionStorage` ni IndexedDB, ni se ofrece descargar el audio.
+
+Las 22 condiciones están verificadas en las pruebas, sobre el código ejecutable e ignorando comentarios.
 
 **Contrabando por el campo de texto.** Una auditoría mostró que eso no alcanzaba: era posible pegar un data-URI de audio *dentro* del campo `texto` y quedaba guardado en la base — audio persistido, justo lo que la restricción prohíbe. Se cerró con dos reglas, aplicadas en el validador y repetidas en el modelo (para que el invariante valga en cualquier ruta futura, no solo en las actuales):
 
@@ -160,11 +190,71 @@ Se evaluó la alternativa del enunciado —`multer.memoryStorage()` + `@xenova/t
 
 Verificado con audio real de 30 KB en cinco variantes (data-URI, mayúsculas, base64 crudo, base64 escondido en una frase) y contra falsos positivos con texto clínico legítimo, incluido uno de 5.000 caracteres y valores tipo `TA 130/85`.
 
-La transcripción es un **borrador editable**: el médico corrige antes de guardar y nada se persiste sin que lo revise. Al guardar, la respuesta trae la lista completa, así que la evolución se renderiza al instante en una lista cronológica sin una segunda consulta. `origen: 'dictado'` queda registrado para saber qué textos conviene releer.
+**Transcribir y guardar son dos pasos separados, a propósito.** `POST /api/transcripcion` devuelve el texto y termina; el guardado sigue pasando por `POST /pacientes/:id/historia`, que no cambió. Así el médico **revisa** la transcripción antes de que entre a la historia clínica —un modelo de voz se equivoca con la terminología médica y nada debería persistirse sin que un humano lo lea— y la ruta de guardado conserva intactas sus validaciones y su control de acceso.
 
-Una implicancia de plataforma que conviene conocer: el reconocimiento de Chrome/Edge se apoya en un servicio de Google. Para un entorno que no pueda aceptarlo, la salida es un modelo local en el propio navegador (transformers.js con WebGPU), que mantiene la misma interfaz del componente.
+La transcripción es un **borrador editable**, y dictar otro tramo **suma** al texto en vez de reemplazarlo. Al guardar, la respuesta trae la lista completa, así que la evolución se renderiza al instante sin una segunda consulta. `origen: 'dictado'` queda registrado para saber qué textos conviene releer.
 
 **Aislamiento clínico.** Todo acceso pasa por `pacienteAtendidoPor`: la relación médico-paciente la establece haber tenido al menos un turno. Sin esa barrera, cualquier médico del sistema leería la historia de cualquier paciente pasando un id.
+
+### Ejemplo de request/response
+
+**1. Subir la grabación completa**
+
+```http
+POST /api/transcripcion
+Authorization: Bearer <jwt del médico>
+Content-Type: multipart/form-data; boundary=----X
+
+------X
+Content-Disposition: form-data; name="audio"; filename="dictado.webm"
+Content-Type: audio/webm
+
+<bytes del Blob de MediaRecorder>
+------X--
+```
+
+```json
+{
+  "ok": true,
+  "texto": "El paciente presenta cefalea intensa desde hace dos días. Se solicita tomografía de cerebro.",
+  "duracionSeg": 7.8,
+  "proveedor": "local",
+  "modelo": "Xenova/whisper-base",
+  "msProceso": 10564,
+  "audioDescartado": true
+}
+```
+
+**2. Guardar el texto ya revisado** (ruta sin cambios)
+
+```http
+POST /api/pacientes/1/historia
+Authorization: Bearer <jwt del médico>
+Content-Type: application/json
+
+{ "texto": "El paciente presenta cefalea intensa...", "turnoId": 12, "origen": "dictado" }
+```
+
+```json
+{
+  "ok": true,
+  "mensaje": "Evolucion guardada",
+  "evolucion": { "id": 14, "texto": "...", "origen": "dictado", "created_at": "..." },
+  "evoluciones": [ /* lista cronológica completa, para renderizar sin otra consulta */ ]
+}
+```
+
+**Errores de audio** — todos responden `400` con un mensaje accionable:
+
+| Caso | Mensaje |
+|---|---|
+| Sin archivo | `No se recibio ningun audio. Envia el archivo en el campo "audio".` |
+| Grabación muda | `No se detecto voz en la grabacion. Revisa que el microfono correcto este seleccionado...` |
+| Menos de 0,4 s | `La grabacion es demasiado corta...` |
+| Archivo dañado | `El audio esta danado o en un formato no soportado.` |
+| Tipo no admitido | `Formato de audio no soportado (application/pdf). Se esperaba webm, ogg, mp4 o wav.` |
+| Supera el límite | `La grabacion supera el limite de 20 MB...` |
+| Whisper no sacó palabras | `No se pudo reconocer ninguna palabra en la grabacion...` |
 
 ## Base de datos (3FN)
 

@@ -40,6 +40,42 @@ export const agendaApi = {
   reactivarDia: (datos) => api.delete('/agenda/cancelar-dia', { data: datos }).then((r) => r.data),
 };
 
+/* ------------------------- TRANSCRIPCION (dictado) ---------------------- */
+/**
+ * Envia la grabacion COMPLETA y devuelve el texto.
+ *
+ * El servidor la procesa en memoria y la descarta: no se guarda en disco ni
+ * en la base. Lo que se persiste es el texto, y recien cuando el medico lo
+ * revisa y lo guarda con pacientesApi.crearEvolucion.
+ */
+export const transcripcionApi = {
+  estado: () => api.get('/transcripcion/estado').then((r) => r.data),
+
+  /**
+   * @param {Blob} blob            audio completo de MediaRecorder
+   * @param {Function} [onProgreso] recibe 0..100 mientras sube
+   */
+  transcribir: (blob, onProgreso) => {
+    const formulario = new FormData();
+    // La extension acompana al mimetype para que el servidor lo reconozca.
+    const extension = (blob.type.split(';')[0].split('/')[1] || 'webm');
+    formulario.append('audio', blob, `dictado.${extension}`);
+
+    return api.post('/transcripcion', formulario, {
+      // Se deja que el navegador ponga el boundary del multipart.
+      headers: { 'Content-Type': undefined },
+      // La transcripcion puede tardar: se sube el timeout por encima del
+      // default de 15 s de la instancia.
+      timeout: 180000,
+      onUploadProgress: (evento) => {
+        if (onProgreso && evento.total) {
+          onProgreso(Math.round((evento.loaded * 100) / evento.total));
+        }
+      },
+    }).then((r) => r.data);
+  },
+};
+
 /* ---------------- PACIENTES: obra social e historia clinica ------------- */
 /**
  * La historia clinica recibe y devuelve SOLO TEXTO. No hay ningun endpoint

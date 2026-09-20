@@ -11,7 +11,9 @@ Internet ──► Nginx :443 ──┬─► /        → /var/www/agendamed (b
                                              └─► MySQL :3306 (solo local)
 ```
 
-> **HTTPS no es opcional en este proyecto.** El dictado por voz de la historia clínica usa la Web Speech API, que los navegadores **solo habilitan en contextos seguros**. Sobre `http://` el micrófono no arranca. El paso 8 (certificado) es obligatorio para que esa función exista.
+> **HTTPS no es opcional en este proyecto.** El dictado de la historia clínica graba con `MediaRecorder` y `getUserMedia`, y los navegadores **solo los habilitan en contextos seguros**. Sobre `http://` el micrófono no arranca. El paso 8 (certificado) es obligatorio para que esa función exista.
+
+> **Decidí el proveedor de transcripción antes de desplegar.** Whisper local no sale de tu servidor pero necesita CPU: medido con `whisper-base`, tarda unas **2,2 veces la duración del audio en un equipo de escritorio**, y bastante más en 1 vCPU. Ver el paso 6b.
 
 ---
 
@@ -143,6 +145,7 @@ Si el repo es privado, generá una clave en el VPS (`ssh-keygen -t ed25519`) y c
 
 **Opción B — Subir desde tu PC.** Desde `C:\Proyectos\AgendaMed`:
 
+
 ```bash
 ssh agenda@IP_DEL_VPS "mkdir -p /var/www/agendamed"
 scp -r backend frontend package*.json agenda@IP_DEL_VPS:/var/www/agendamed/
@@ -229,6 +232,56 @@ Tenés que ver `[db] Conexion a MySQL establecida` y `[api] AgendaMed escuchando
 
 ---
 
+## 6b. Elegir el proveedor de transcripción
+
+El dictado envía la grabación completa al servidor, que la transcribe **una sola vez** y descarta el audio. Hay dos formas de hacerlo y la decisión tiene consecuencias reales:
+
+| | `local` | `externo` |
+|---|---|---|
+| Dónde corre | Whisper en tu VPS | API compatible con OpenAI |
+| El audio del paciente | **No sale del servidor** | **Viaja a un tercero** |
+| Costo | Solo CPU | Por minuto transcrito |
+| Velocidad en 1 vCPU | Lento (ver abajo) | Segundos |
+
+**Sobre la velocidad.** Medido con `Xenova/whisper-base` en un equipo de escritorio: **18,7 s para 8,4 s de audio**, unas 2,2 veces la duración. Un VPS de 1 vCPU es sensiblemente más lento, así que un dictado de dos minutos puede tardar varios minutos en volver. Opciones:
+
+- Subir el plan del VPS a 2–4 vCPU y usar `local`.
+- Usar `Xenova/whisper-tiny`: más rápido, pero confunde terminología médica (en la prueba escribió *"yografia"* en lugar de *"ecografía"*).
+- Usar el proveedor `externo`, aceptando que el audio sale del servidor.
+
+Para datos clínicos la recomendación es `local`; si no llegás con el CPU, conviene decidirlo a conciencia y, si vas a `externo`, tener un acuerdo de tratamiento de datos con el proveedor.
+
+Agregá al `.env` la opción elegida:
+
+```ini
+# Opción A — Whisper local (el audio no sale del servidor)
+TRANSCRIPCION_PROVEEDOR=local
+TRANSCRIPCION_MODELO_LOCAL=Xenova/whisper-base
+TRANSCRIPCION_PRECARGAR=true        # carga el modelo al arrancar
+
+# Opción B — API externa (más rápida; el audio viaja)
+# TRANSCRIPCION_PROVEEDOR=externo
+# TRANSCRIPCION_API_URL=https://api.openai.com/v1
+# TRANSCRIPCION_API_KEY=sk-...
+# TRANSCRIPCION_MODELO_EXTERNO=whisper-1
+
+TRANSCRIPCION_IDIOMA=spanish
+TRANSCRIPCION_IDIOMA_ISO=es
+TRANSCRIPCION_MAX_MB=20
+```
+
+Con el proveedor local, el modelo se descarga la primera vez desde Hugging Face y se cachea en `~/.cache/huggingface`. Con `TRANSCRIPCION_PRECARGAR=true` se baja al arrancar en vez de en el primer dictado: el arranque tarda más, pero nadie espera la descarga.
+
+Probá que funciona:
+
+```bash
+node -e "require('./src/services/transcripcion').precalentar().then(()=>console.log('modelo listo'))"
+```
+
+`ffmpeg` viene incluido con el paquete `ffmpeg-static`: **no hace falta instalarlo en el sistema**.
+
+---
+
 ## 7. Compilar el frontend
 
 ```bash
@@ -279,10 +332,15 @@ server {
         # todos juntos (app.js ya tiene 'trust proxy' activado).
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 60s;
+        # Whisper local puede tardar varias veces la duracion del audio:
+        # con 60s un dictado largo daria 504.
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
     }
 
-    client_max_body_size 1m;
+    # El dictado sube la grabacion completa: 1m no alcanza.
+    # Tiene que ser >= TRANSCRIPCION_MAX_MB del .env.
+    client_max_body_size 25m;
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
     gzip_min_length 1024;
@@ -411,7 +469,10 @@ npm run build            # Nginx sirve el dist nuevo, no hace falta recargarlo
 | 502 Bad Gateway | El backend está caído: `pm2 status`, `pm2 logs agendamed-api` |
 | La API responde pero devuelve 500 | `pm2 logs`. Suele ser `.env` mal cargado o migración pendiente (`npm run db:up`) |
 | `/medico` da 404 al recargar | Falta `try_files $uri $uri/ /index.html` en Nginx |
-| El micrófono no arranca | Verificá que la URL sea `https://`. Sobre `http://` el navegador bloquea la Web Speech API |
+| El micrófono no arranca | Verificá que la URL sea `https://`. Sobre `http://` el navegador bloquea `getUserMedia` |
+| El dictado da 413 | Subí `client_max_body_size` en Nginx por encima de `TRANSCRIPCION_MAX_MB` |
+| El dictado da 504 | Subí `proxy_read_timeout`, o pasá a un modelo más chico / al proveedor externo |
+| El primer dictado tarda muchísimo | Está descargando el modelo. Poné `TRANSCRIPCION_PRECARGAR=true` |
 | `ER_ACCESS_DENIED_ERROR` | Usuario o clave de MySQL mal en `.env` |
 | Los pagos no se acreditan | El webhook de MercadoPago tiene que apuntar al dominio público con HTTPS |
 | Certbot falla | El DNS todavía no propagó: `nslookup tudominio.com` |

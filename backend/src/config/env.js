@@ -4,7 +4,7 @@
  * Si falta algo critico, el proceso muere temprano (fail fast) en vez de
  * fallar a mitad de una request.
  */
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
 const requeridas = ['DB_HOST', 'DB_USER', 'DB_NAME', 'JWT_SECRET'];
 const faltantes = requeridas.filter((k) => !process.env[k]);
@@ -48,6 +48,39 @@ module.exports = {
     webhookUrl: process.env.MP_WEBHOOK_URL || '',
     // Permite levantar el proyecto sin credenciales reales (modo simulado)
     habilitado: Boolean(process.env.MP_ACCESS_TOKEN),
+  },
+
+  /**
+   * Transcripcion de la historia clinica.
+   *
+   * proveedor 'local'   -> Whisper corriendo en este servidor. El audio NO
+   *                        sale de la maquina. Recomendado para datos
+   *                        clinicos; necesita CPU (en 1 vCPU es lento).
+   * proveedor 'externo' -> API compatible con OpenAI. Rapido, pero el audio
+   *                        del paciente viaja a un tercero.
+   *
+   * En ninguno de los dos casos el audio se guarda en disco ni en la base:
+   * vive como Buffer en memoria mientras dura la request.
+   */
+  transcripcion: {
+    proveedor: (process.env.TRANSCRIPCION_PROVEEDOR || 'local').toLowerCase(),
+
+    // Proveedor local
+    modeloLocal: process.env.TRANSCRIPCION_MODELO_LOCAL || 'Xenova/whisper-base',
+    // Carga el modelo al arrancar en vez de en la primera consulta.
+    precargar: process.env.TRANSCRIPCION_PRECARGAR === 'true',
+
+    // Proveedor externo
+    apiUrl: process.env.TRANSCRIPCION_API_URL || 'https://api.openai.com/v1',
+    apiKey: process.env.TRANSCRIPCION_API_KEY || '',
+    modeloExterno: process.env.TRANSCRIPCION_MODELO_EXTERNO || 'whisper-1',
+
+    // Comunes
+    idioma: process.env.TRANSCRIPCION_IDIOMA || 'spanish',   // formato de Whisper local
+    idiomaIso: process.env.TRANSCRIPCION_IDIOMA_ISO || 'es', // formato de la API externa
+    // Tamano maximo del audio aceptado, en MB.
+    maxMb: Number(process.env.TRANSCRIPCION_MAX_MB || 20),
+    timeoutMs: Number(process.env.TRANSCRIPCION_TIMEOUT_MS || 120000),
   },
 
   negocio: {
