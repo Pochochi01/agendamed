@@ -159,8 +159,8 @@ export default function MedicoEnlace() {
           </li>
           <li className="flex gap-3">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-marca-100 text-xs font-bold text-marca-700">2</span>
-            <span>El paciente entra, elige día y horario, y carga sus datos:
-              nombre, DNI y <b>su número de WhatsApp</b>.</span>
+            <span>Al entrar, lo primero que se le pide es <b>su número de WhatsApp</b>.
+              Después elige día y horario y carga nombre, apellido y DNI.</span>
           </li>
           <li className="flex gap-3">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-marca-100 text-xs font-bold text-marca-700">3</span>

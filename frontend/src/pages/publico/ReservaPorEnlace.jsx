@@ -6,17 +6,22 @@
  * libres de ese profesional, y el paciente reserva cargando nombre y DNI.
  *
  * --------------------------------------------------------------------------
- * El numero de WhatsApp lo carga el paciente
+ * El numero de WhatsApp: lo pone el paciente, como PARAMETRO
  * --------------------------------------------------------------------------
- * El enlace del medico es generico: el mismo para todos, sin el numero de
- * nadie. Es el paciente quien escribe su WhatsApp en este formulario, y ese
- * numero queda guardado en el turno para que el consultorio pueda
- * comunicarse despues.
+ * El enlace que comparte el medico es generico y no lleva el numero de nadie.
  *
- * Antes venia como parametro del enlace (?wa=...), lo que obligaba a armar un
- * enlace por paciente. Se acepta todavia ese parametro para PRECARGAR el
- * campo si alguien abre un enlace viejo, pero el campo es editable: el
- * paciente puede corregirlo.
+ * Al entrar, lo PRIMERO que se le pide al paciente es su WhatsApp (paso 0).
+ * Al continuar, ese numero pasa a la URL como parametro `?wa=`, y de ahi en
+ * mas el flujo lo trata como dato fijo: cuando completa nombre, apellido y
+ * DNI para reservar, el campo aparece ya cargado y SIN posibilidad de
+ * editarlo.
+ *
+ * Por que separarlo en un paso previo y no ponerlo junto al resto:
+ *   - el enlace del medico sigue siendo uno solo para todos;
+ *   - el numero queda en la URL, asi sobrevive a recargas y a volver atras;
+ *   - al momento de cargar los datos del turno ya es inmodificable, que es lo
+ *     que se pidio, sin que por eso el paciente quede atrapado: puede
+ *     corregirlo desde "Cambiar numero", que lo devuelve al paso 0.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
@@ -25,16 +30,25 @@ import { reservaPublicaApi } from '../../api/servicios';
 import { Aviso, Cargando, Campo, Modal, SinDatos } from '../../components/UI';
 import { DIAS_CORTOS, diaSemanaDeFecha, fechaLarga, hora, moneda } from '../../utils/formato';
 
+/** Deja el telefono en digitos, que es como se guarda y como lo usa wa.me. */
+const soloDigitos = (v) => String(v || '').replace(/\D/g, '');
+
 export default function ReservaPorEnlace() {
   const { hash } = useParams();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
 
   /**
-   * Si el enlace trae ?wa= (formato antiguo) se usa para PRECARGAR el campo.
-   * No es obligatorio ni de solo lectura: el paciente lo completa o lo
-   * corrige en el formulario.
+   * El numero vive en la URL. Es la fuente de verdad del resto del flujo:
+   * si no esta, se muestra el paso 0; si esta, va bloqueado al formulario.
    */
-  const whatsappPrecargado = useMemo(() => params.get('wa') || '', [params]);
+  const whatsapp = useMemo(() => {
+    const crudo = soloDigitos(params.get('wa'));
+    return crudo.length >= 8 && crudo.length <= 15 ? crudo : '';
+  }, [params]);
+
+  // Campo del paso 0, antes de pasar el numero a la URL.
+  const [waIngresado, setWaIngresado] = useState('');
+  const [errorWa, setErrorWa] = useState(null);
 
   const [datos, setDatos] = useState(null);
   const [diaElegido, setDiaElegido] = useState(null);
@@ -45,12 +59,36 @@ export default function ReservaPorEnlace() {
   const [enviando, setEnviando] = useState(false);
   const [reserva, setReserva] = useState(null);   // resultado exitoso
 
+  // El WhatsApp NO es un campo del formulario: viene del parametro de la URL.
   const { register, handleSubmit, formState: { errors } } = useForm({
-    defaultValues: {
-      nombre: '', apellido: '', dni: '', motivoConsulta: '',
-      whatsapp: whatsappPrecargado,
-    },
+    defaultValues: { nombre: '', apellido: '', dni: '', motivoConsulta: '' },
   });
+
+  /** Paso 0: pasa el numero validado a la URL como parametro. */
+  const confirmarWhatsapp = (evento) => {
+    evento.preventDefault();
+    const digitos = soloDigitos(waIngresado);
+
+    if (digitos.length < 8) {
+      setErrorWa('El numero parece incompleto. Incluí el codigo de area, sin el 0 ni el 15.');
+      return;
+    }
+    if (digitos.length > 15) {
+      setErrorWa('El numero es demasiado largo. Revisalo.');
+      return;
+    }
+
+    setErrorWa(null);
+    // replace: no deja el paso 0 en el historial del navegador.
+    setParams({ wa: digitos }, { replace: true });
+  };
+
+  /** Vuelve al paso 0 para corregir el numero. */
+  const cambiarWhatsapp = () => {
+    setWaIngresado(whatsapp);
+    setSlotElegido(null);
+    setParams({}, { replace: true });
+  };
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -115,9 +153,9 @@ export default function ReservaPorEnlace() {
         nombre: valores.nombre,
         apellido: valores.apellido,
         dni: valores.dni,
-        // El numero lo escribio el paciente: queda guardado en el turno para
-        // que el consultorio pueda contactarlo.
-        whatsapp: valores.whatsapp,
+        // Se envia como `wa` porque eso es: el parametro que el paciente
+        // confirmo al entrar, no un campo editable del formulario.
+        wa: whatsapp,
         fecha: slotElegido.fecha,
         horaInicio: slotElegido.horaInicio,
         consultorioId: slotElegido.consultorioId,
@@ -195,6 +233,40 @@ export default function ReservaPorEnlace() {
           </Aviso>
         )}
 
+        {/* ================= PASO 0: WhatsApp del paciente ================ */}
+        {!whatsapp && !reserva ? (
+          <div className="card space-y-4">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Antes de empezar, dejanos tu WhatsApp
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Es la forma que tiene el consultorio de comunicarse con vos: confirmar el
+                turno, avisarte una demora o reprogramar.
+              </p>
+            </div>
+
+            <form onSubmit={confirmarWhatsapp} className="space-y-3">
+              <Campo label="Tu numero de WhatsApp" requerido error={errorWa}
+                ayuda="Con codigo de area, sin el 0 ni el 15. Ej: 3511234567">
+                <input type="tel" inputMode="tel" autoFocus
+                  className="input font-mono text-lg"
+                  placeholder="3511234567"
+                  value={waIngresado}
+                  onChange={(e) => { setWaIngresado(e.target.value); setErrorWa(null); }} />
+              </Campo>
+
+              <button type="submit" className="btn-primario w-full">
+                Continuar
+              </button>
+
+              <p className="text-center text-xs text-slate-500">
+                Despues vas a elegir dia y horario, y completar tus datos.
+              </p>
+            </form>
+          </div>
+        ) : null}
+
         {/* ------------------------ Reserva hecha ------------------------ */}
         {reserva ? (
           <div className="card space-y-4 border-l-4 border-l-emerald-400">
@@ -252,11 +324,26 @@ export default function ReservaPorEnlace() {
               Guarda este comprobante o saca una captura de pantalla.
             </p>
           </div>
+        ) : !whatsapp ? (
+          // Sin numero todavia: el paso 0 de arriba es lo unico visible.
+          null
         ) : datos.calendario.length === 0 ? (
           <SinDatos icono="📅" titulo="Sin turnos disponibles"
             descripcion="El profesional no tiene horarios libres en los proximos 30 dias. Comunicate con el consultorio." />
         ) : (
           <>
+            {/* Numero confirmado: queda a la vista, y este es el unico lugar
+                donde se puede corregir. En el formulario de reserva ya no. */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-emerald-50 px-4 py-3 ring-1 ring-inset ring-emerald-200">
+              <p className="text-sm text-emerald-900">
+                Te contactamos al <b className="font-mono">{whatsapp}</b>
+              </p>
+              <button type="button" onClick={cambiarWhatsapp}
+                className="text-xs font-medium text-emerald-800 underline hover:text-emerald-900">
+                Cambiar numero
+              </button>
+            </div>
+
             {/* ------------------------- Paso 1: dia -------------------- */}
             <div className="card">
               <h2 className="mb-3 text-sm font-semibold text-slate-900">1. Elegi el dia</h2>
@@ -365,26 +452,21 @@ export default function ReservaPorEnlace() {
                 })} />
             </Campo>
 
-            {/* El paciente carga su WhatsApp: es el contacto del turno. */}
-            <Campo label="WhatsApp" requerido error={errors.whatsapp?.message}
-              ayuda="Con codigo de area, sin el 0 ni el 15. Ej: 3511234567">
-              <input type="tel" inputMode="tel" className="input font-mono"
-                placeholder="3511234567"
-                {...register('whatsapp', {
-                  required: 'Ingresa tu numero de WhatsApp',
-                  validate: (valor) => {
-                    const digitos = String(valor || '').replace(/\D/g, '');
-                    if (digitos.length < 8) return 'El numero parece incompleto';
-                    if (digitos.length > 15) return 'El numero es demasiado largo';
-                    return true;
-                  },
-                })} />
-            </Campo>
-
-            <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-              El consultorio usa este numero para comunicarse con vos: confirmar el turno,
-              avisarte una demora o reprogramar. Revisa que este bien escrito.
-            </p>
+            {/*
+              WhatsApp: viene del parametro de la URL, cargado en el paso 0.
+              Aca es de SOLO LECTURA (readOnly + disabled): mientras completa
+              nombre, apellido y DNI no puede modificarlo. Si se equivoco, lo
+              corrige desde "Cambiar numero", fuera de este formulario.
+            */}
+            <div>
+              <label className="label">WhatsApp</label>
+              <input type="text" readOnly disabled value={whatsapp}
+                className="input cursor-not-allowed bg-slate-100 font-mono text-slate-600" />
+              <p className="mt-1 text-xs text-slate-500">
+                Es el numero con el que ingresaste. Queda asociado al turno y no se puede
+                modificar desde aca: si esta mal, volve atras y usa &ldquo;Cambiar numero&rdquo;.
+              </p>
+            </div>
 
             <Campo label="Motivo de la consulta" error={errors.motivoConsulta?.message}>
               <textarea rows={2} className="input" maxLength={255}

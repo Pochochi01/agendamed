@@ -7,20 +7,24 @@
  * profesional y reserva cargando solo nombre y DNI.
  *
  * --------------------------------------------------------------------------
- * El WhatsApp lo aporta el PACIENTE al reservar
+ * El WhatsApp: lo pone el PACIENTE y viaja como parametro
  * --------------------------------------------------------------------------
- * El enlace del medico es UNO SOLO y generico: el mismo para todos. No lleva
- * el numero de nadie.
+ * El enlace del medico es UNO SOLO y generico: el mismo para todos, sin el
+ * numero de nadie.
  *
- * El numero de contacto lo escribe el propio paciente en el formulario de
- * reserva y se guarda en el turno, para que el profesional pueda comunicarse
- * despues (confirmar, avisar una demora, reprogramar).
+ * Al entrar, la pagina le pide al paciente su WhatsApp antes que nada y lo
+ * pasa a la URL (`?wa=`). Desde ese momento es un dato fijo: cuando completa
+ * nombre, apellido y DNI, el campo aparece cargado y bloqueado.
  *
- * Disenio anterior y por que se cambio: el numero venia como parametro del
- * enlace (?wa=...), lo que obligaba al consultorio a armar un enlace distinto
- * por paciente. Ademas el navegador no puede leer el telefono del dispositivo
- * —ninguna API web lo expone— asi que igual habia que conseguirlo por fuera.
- * Pedirselo al paciente es mas simple y no depende de nada.
+ * Del lado del servidor el numero se toma de `wa` con prioridad sobre
+ * `whatsapp`, justamente porque `wa` es el que vino del parametro. Si un
+ * cliente mandara los dos con valores distintos, gana el parametro: el campo
+ * del formulario no puede pisarlo.
+ *
+ * Nota: ninguna API web expone el telefono del dispositivo, asi que el numero
+ * tiene que declararlo la persona. Es un dato informado, no verificado; para
+ * confirmarlo habria que mandar un codigo por WhatsApp, que excede este
+ * modulo.
  */
 const Medico = require('../models/medico.model');
 const Paciente = require('../models/paciente.model');
@@ -102,9 +106,13 @@ async function reservarPorHash(req, res) {
 
   const { nombre, apellido, dni, fecha, horaInicio, consultorioId = null, motivoConsulta = null } = req.body;
 
-  // Lo carga el paciente en el formulario. `wa` se sigue aceptando por
-  // compatibilidad con enlaces viejos que lo traian en la URL.
-  const whatsapp = normalizarWhatsapp(req.body.whatsapp ?? req.body.wa);
+  /*
+   * El parametro `wa` (o `?wa=` en la query) tiene PRIORIDAD sobre el campo
+   * `whatsapp` del cuerpo: es el que el paciente confirmo al entrar y el que
+   * la pagina muestra bloqueado. Si llegaran los dos, el del formulario no
+   * puede sobreescribirlo.
+   */
+  const whatsapp = normalizarWhatsapp(req.body.wa ?? req.query.wa ?? req.body.whatsapp);
   if (!whatsapp) {
     throw ApiError.badRequest(
       'Ingresa un numero de WhatsApp valido: es la unica forma que tiene el consultorio '

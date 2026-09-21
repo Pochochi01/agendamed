@@ -146,20 +146,26 @@ En desarrollo el paso 2 se descarta a propósito: el proxy de Vite reescribe el 
 
 **Paciente invitado.** Reservar no requiere cuenta. Para no duplicar el nombre en otra tabla y romper la 3FN, se crea igual una fila en `users`, pero con `email` y `password_hash` en `NULL`; eso es la marca de "no puede iniciar sesión" y el login lo rechaza explícitamente. Si más adelante ese paciente se registra con el mismo DNI, **reclama su cuenta**: se le agregan las credenciales al usuario existente y conserva sus turnos y su historia clínica.
 
-**El WhatsApp lo aporta el paciente al reservar.** El enlace del médico es **uno solo y genérico**: el mismo para todos, sin el número de nadie. El paciente lo carga en el formulario, junto con nombre y DNI, y queda guardado en el turno para que el profesional pueda comunicarse después.
+**El WhatsApp lo pone el paciente y viaja como parámetro.** El enlace del médico es **uno solo y genérico**: el mismo para todos, sin el número de nadie. Al entrar, lo primero que se le pide al paciente es su WhatsApp; al continuar, ese número pasa a la URL y de ahí en más es un dato fijo.
 
 ```
-médico  ──comparte──►  /reservar/mp-14523-romero-laura   (un solo enlace)
+médico  ──comparte──►  /reservar/mp-14523-romero-laura        (enlace genérico)
                                       │
-paciente ──reserva──►  nombre · DNI · WhatsApp · día · horario
+paso 0   paciente ingresa su WhatsApp ──►  ?wa=3511234567     (queda en la URL)
                                       │
-                       turnos.telefono_whatsapp  ──►  agenda del médico
-                                                      con acceso directo al chat
+paso 1-3 elige día · consultorio · horario
+                                      │
+confirma  nombre · apellido · DNI  +  WhatsApp ya cargado y BLOQUEADO
+                                      │
+                       turnos.telefono_whatsapp  ──►  agenda del médico,
+                                                      con "Abrir chat" directo
 ```
 
-Es obligatorio porque una reserva por enlace **no deja email ni cuenta**: es el único canal de contacto que queda.
+Separarlo en un paso previo logra tres cosas a la vez: el enlace del médico sigue siendo uno solo, el número sobrevive a recargas y a volver atrás porque vive en la URL, y al momento de cargar los datos del turno ya es **inmodificable** (`readOnly disabled`), que es el requisito. El paciente no queda atrapado si se equivocó: el botón **"Cambiar número"** lo devuelve al paso 0, fuera del formulario de reserva.
 
-> **Diseño anterior y por qué se cambió.** El número venía como parámetro del enlace (`?wa=...`), lo que obligaba al consultorio a armar un enlace distinto por paciente y a conseguir el número de antemano. Además ninguna API web expone el teléfono del dispositivo —eso no se puede implementar—, así que el dato había que obtenerlo por fuera igual. Pedírselo al paciente es más simple y no depende de nada. El parámetro `?wa=` se sigue aceptando para **precargar** el campo si alguien abre un enlace viejo, pero el campo es editable.
+En el servidor el parámetro `wa` tiene **prioridad** sobre cualquier campo `whatsapp` del cuerpo, así que un formulario no puede pisarlo. Es obligatorio: una reserva por enlace no deja email ni cuenta, así que es el único canal de contacto que queda.
+
+> Ninguna API web expone el teléfono del dispositivo, así que el número tiene que declararlo la persona. Es un dato **informado, no verificado**; confirmarlo requeriría enviar un código por WhatsApp, que excede este módulo.
 
 Se guarda en dos lugares con sentidos distintos: `pacientes.telefono_whatsapp` es el **contacto vigente** (se actualiza con el último que informó, por si corrigió un error o cambió de número) y `turnos.telefono_whatsapp` es el usado en *esa* reserva, que no cambia — así el médico conserva el historial de con qué número se pidió cada turno.
 

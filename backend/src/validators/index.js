@@ -211,17 +211,22 @@ const reservaPublica = [
   body('consultorioId').optional({ values: 'null' }).isInt({ min: 1 }).withMessage('Consultorio invalido'),
   body('motivoConsulta').optional({ values: 'falsy' }).trim().isLength({ max: 255 }),
   /*
-   * Formato del WhatsApp. La PRESENCIA la exige el controlador y no este
-   * validador, porque el numero puede llegar en `whatsapp` (formulario) o en
-   * `wa` (enlaces antiguos que lo traian en la URL): pedirlo obligatorio aca
-   * rechazaria los segundos. El controlador normaliza y, si no queda un numero
-   * valido, responde 400 con un mensaje claro.
+   * Formato del WhatsApp. Llega como `wa`: el parametro que el paciente
+   * confirmo al entrar al enlace. Se acepta tambien `whatsapp` por
+   * compatibilidad con clientes que lo manden como campo del cuerpo.
+   *
+   * La PRESENCIA la exige el controlador, no este validador, porque el valor
+   * puede venir en cualquiera de los dos nombres (o en la query): pedirlo
+   * obligatorio en uno solo rechazaria los otros casos. El controlador
+   * normaliza y, si no queda un numero valido, responde 400 con un mensaje
+   * claro.
    */
+  body('wa').optional({ values: 'falsy' }).trim()
+    .isLength({ min: 8, max: 25 }).withMessage('El numero de WhatsApp no parece valido')
+    .matches(/^[\d\s()+-]+$/).withMessage('El WhatsApp solo puede tener numeros'),
   body('whatsapp').optional({ values: 'falsy' }).trim()
     .isLength({ min: 8, max: 25 }).withMessage('El numero de WhatsApp no parece valido')
     .matches(/^[\d\s()+-]+$/).withMessage('El WhatsApp solo puede tener numeros'),
-  body('wa').optional({ values: 'falsy' }).trim()
-    .isLength({ min: 8, max: 25 }).withMessage('Numero de WhatsApp invalido'),
 ];
 
 /* ----------------------------- AGENDA DIARIA --------------------------- */
