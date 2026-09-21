@@ -71,9 +71,9 @@ INSERT IGNORE INTO obras_sociales (nombre, sigla) VALUES
 -- persistente de la persona, no del evento. Asi el medico la carga una vez y
 -- queda disponible para los turnos siguientes.
 --
--- `telefono_whatsapp` es el numero con el que el paciente llego por el enlace
--- directo. Queda de solo lectura para el paciente (el formulario publico lo
--- muestra deshabilitado y el backend ignora cualquier intento de cambiarlo).
+-- telefono_whatsapp es el WhatsApp de contacto que el paciente carga al
+-- reservar por el enlace. El enlace del medico es generico y NO lleva ningun
+-- numero: lo aporta cada paciente en el formulario.
 -- ---------------------------------------------------------------------------
 ALTER TABLE pacientes
   ADD COLUMN obra_social_id    INT UNSIGNED NULL AFTER fecha_nacimiento,
@@ -87,9 +87,9 @@ ALTER TABLE pacientes
 -- ---------------------------------------------------------------------------
 -- 5. TURNOS: procedencia de la reserva
 --
--- Ademas del numero "primario" del paciente se guarda el WhatsApp con el que
--- se hizo CADA reserva: si el mismo paciente agenda desde otro telefono, el
--- medico ve desde cual se pidio ese turno puntual.
+-- Ademas del contacto actual del paciente se guarda el WhatsApp informado en
+-- CADA reserva: si despues lo cambia, el medico conserva el historial de con
+-- que numero se pidio cada turno.
 -- ---------------------------------------------------------------------------
 ALTER TABLE turnos
   ADD COLUMN telefono_whatsapp VARCHAR(30) NULL AFTER motivo_consulta,

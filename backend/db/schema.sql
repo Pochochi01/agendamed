@@ -128,9 +128,8 @@ CREATE TABLE pacientes (
   -- de la persona. El medico la carga una vez y queda para los turnos futuros.
   obra_social_id   INT UNSIGNED NULL,
   nro_afiliado     VARCHAR(50)  NULL,
-  -- Numero con el que el paciente llego por el enlace directo. De solo lectura
-  -- para el paciente: el formulario publico lo muestra deshabilitado y el
-  -- backend ignora cualquier intento de modificarlo o borrarlo.
+  -- WhatsApp de contacto que el paciente informa al reservar. Se actualiza
+  -- con el ultimo que haya cargado: es el numero vigente para contactarlo.
   telefono_whatsapp VARCHAR(30) NULL,
   UNIQUE KEY uq_pacientes_user (user_id),
   UNIQUE KEY uq_pacientes_dni (dni),
@@ -203,8 +202,8 @@ CREATE TABLE turnos (
   estado             ENUM('pendiente','confirmado','cancelado','completado','ausente') NOT NULL DEFAULT 'pendiente',
   monto_total        DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   motivo_consulta    VARCHAR(255) NULL,
-  -- WhatsApp con el que se hizo ESTA reserva (puede diferir del primario del
-  -- paciente si agendo desde otro telefono) y canal por el que entro.
+  -- WhatsApp informado en ESTA reserva (puede diferir del contacto actual del
+  -- paciente si despues lo cambio) y canal por el que entro el turno.
   telefono_whatsapp  VARCHAR(30) NULL,
   canal              ENUM('web','enlace_directo') NOT NULL DEFAULT 'web',
   motivo_cancelacion VARCHAR(255) NULL,

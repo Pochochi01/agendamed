@@ -194,11 +194,11 @@ const cancelarTurno = [
 /* --------------------- RESERVA PUBLICA (enlace directo) ---------------- */
 
 /**
- * Reserva sin sesion. El paciente carga nombre, apellido y DNI.
+ * Reserva sin sesion. El paciente carga nombre, apellido, DNI y su WhatsApp.
  *
- * `wa` (WhatsApp de origen) se valida con forma de telefono pero el
- * controlador lo normaliza y lo toma del parametro de entrada, nunca de un
- * campo editable del formulario.
+ * El WhatsApp es OBLIGATORIO: una reserva por enlace no deja email ni cuenta,
+ * asi que es el unico canal que le queda al profesional para contactarlo.
+ * El controlador lo normaliza a solo digitos antes de guardarlo.
  */
 const reservaPublica = [
   body('nombre').trim().notEmpty().withMessage('Ingresa tu nombre').isLength({ max: 80 }),
@@ -210,6 +210,16 @@ const reservaPublica = [
   body('horaInicio').matches(HORA_REGEX).withMessage('Hora invalida (HH:MM)'),
   body('consultorioId').optional({ values: 'null' }).isInt({ min: 1 }).withMessage('Consultorio invalido'),
   body('motivoConsulta').optional({ values: 'falsy' }).trim().isLength({ max: 255 }),
+  /*
+   * Formato del WhatsApp. La PRESENCIA la exige el controlador y no este
+   * validador, porque el numero puede llegar en `whatsapp` (formulario) o en
+   * `wa` (enlaces antiguos que lo traian en la URL): pedirlo obligatorio aca
+   * rechazaria los segundos. El controlador normaliza y, si no queda un numero
+   * valido, responde 400 con un mensaje claro.
+   */
+  body('whatsapp').optional({ values: 'falsy' }).trim()
+    .isLength({ min: 8, max: 25 }).withMessage('El numero de WhatsApp no parece valido')
+    .matches(/^[\d\s()+-]+$/).withMessage('El WhatsApp solo puede tener numeros'),
   body('wa').optional({ values: 'falsy' }).trim()
     .isLength({ min: 8, max: 25 }).withMessage('Numero de WhatsApp invalido'),
 ];

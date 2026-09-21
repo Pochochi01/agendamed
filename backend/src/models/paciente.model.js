@@ -68,16 +68,19 @@ const Paciente = {
   },
 
   /**
-   * Guarda el WhatsApp del paciente solo si todavia no tenia uno.
+   * Guarda el WhatsApp de contacto del paciente.
    *
-   * No se sobreescribe un numero ya cargado: el requisito es que el telefono
-   * de origen no se pueda modificar ni borrar. El numero con el que se hizo
-   * cada reserva puntual se guarda aparte, en `turnos.telefono_whatsapp`.
+   * Se ACTUALIZA con el ultimo que el paciente informo al reservar, no se
+   * conserva el primero: si cambio de numero o corrigio un error de tipeo, el
+   * profesional necesita el vigente para poder comunicarse.
+   *
+   * El numero usado en cada reserva puntual queda aparte, en
+   * `turnos.telefono_whatsapp`, asi no se pierde el historial de contacto.
    */
-  async completarWhatsappSiFalta(id, telefonoWhatsapp) {
+  async actualizarWhatsapp(id, telefonoWhatsapp) {
     if (!telefonoWhatsapp) return false;
     const res = await query(
-      'UPDATE pacientes SET telefono_whatsapp = ? WHERE id = ? AND telefono_whatsapp IS NULL',
+      'UPDATE pacientes SET telefono_whatsapp = ? WHERE id = ?',
       [telefonoWhatsapp, id]
     );
     return res.affectedRows > 0;

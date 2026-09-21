@@ -7,23 +7,21 @@
  * profesional y reserva cargando solo nombre y DNI.
  *
  * --------------------------------------------------------------------------
- * Sobre el numero de WhatsApp
+ * El WhatsApp lo aporta el PACIENTE al reservar
  * --------------------------------------------------------------------------
- * El navegador NO puede leer el telefono del dispositivo: no existe ninguna
- * API web que lo exponga. El numero llega como parametro de la URL
- * (?wa=549351...), que es lo que se puede lograr en la practica cuando el
- * enlace lo genera un bot de WhatsApp o se arma uno por paciente.
+ * El enlace del medico es UNO SOLO y generico: el mismo para todos. No lleva
+ * el numero de nadie.
  *
- * Consecuencia a tener en cuenta: el parametro es texto en una URL y, por lo
- * tanto, un paciente podria editarlo. Se trata como "numero declarado en el
- * origen", no como dato verificado. Para que sea confiable hay que firmarlo
- * (ver `verificarFirmaWhatsapp`, activable con WA_FIRMA_SECRET).
+ * El numero de contacto lo escribe el propio paciente en el formulario de
+ * reserva y se guarda en el turno, para que el profesional pueda comunicarse
+ * despues (confirmar, avisar una demora, reprogramar).
  *
- * Del lado del paciente el numero es de solo lectura: el formulario lo muestra
- * deshabilitado y aca se toma SIEMPRE del parametro de entrada, nunca de un
- * campo editable del formulario.
+ * Disenio anterior y por que se cambio: el numero venia como parametro del
+ * enlace (?wa=...), lo que obligaba al consultorio a armar un enlace distinto
+ * por paciente. Ademas el navegador no puede leer el telefono del dispositivo
+ * —ninguna API web lo expone— asi que igual habia que conseguirlo por fuera.
+ * Pedirselo al paciente es mas simple y no depende de nada.
  */
-const crypto = require('crypto');
 const Medico = require('../models/medico.model');
 const Paciente = require('../models/paciente.model');
 const Turno = require('../models/turno.model');
@@ -41,25 +39,6 @@ function normalizarWhatsapp(valor) {
   // Entre 8 y 15 digitos: cubre numeros locales e internacionales (E.164).
   if (soloDigitos.length < 8 || soloDigitos.length > 15) return null;
   return soloDigitos;
-}
-
-/**
- * Valida la firma del numero, si se configuro WA_FIRMA_SECRET.
- * El enlace se arma como ?wa=<numero>&fw=<hmac>. Sin secreto configurado se
- * acepta el numero sin firmar (modo simple).
- *
- * @returns {{valido:boolean, verificado:boolean}}
- */
-function verificarFirmaWhatsapp(numero, firma) {
-  const secreto = process.env.WA_FIRMA_SECRET;
-  if (!secreto) return { valido: true, verificado: false };
-  if (!firma) return { valido: false, verificado: false };
-
-  const esperada = crypto.createHmac('sha256', secreto).update(String(numero)).digest('hex').slice(0, 32);
-  const a = Buffer.from(String(firma));
-  const b = Buffer.from(esperada);
-  const valido = a.length === b.length && crypto.timingSafeEqual(a, b);
-  return { valido, verificado: valido };
 }
 
 /** Resuelve el medico del identificador del enlace o lanza 404. */
@@ -90,11 +69,6 @@ async function disponibilidadPorHash(req, res) {
   const dias = Number(req.query.dias || 30);
   const calendario = await slotsDelRango(medico, desde, dias);
 
-  // El numero viaja en la respuesta ya normalizado, para que el formulario lo
-  // muestre deshabilitado y lo reenvie tal cual.
-  const whatsapp = normalizarWhatsapp(req.query.wa);
-  const firma = whatsapp ? verificarFirmaWhatsapp(whatsapp, req.query.fw) : { valido: true, verificado: false };
-
   return res.json({
     ok: true,
     medico: {
@@ -107,13 +81,6 @@ async function disponibilidadPorHash(req, res) {
       porcentajeSena: medico.porcentaje_sena,
       mercadopagoConfigurado: Boolean(medico.mercadopago_configurado),
     },
-    whatsapp: {
-      numero: whatsapp,
-      // El formulario usa esto para avisar si falta el numero en el enlace.
-      presente: Boolean(whatsapp),
-      firmaValida: firma.valido,
-      verificado: firma.verificado,
-    },
     // Solo los dias con turnos libres: la pagina publica no muestra dias vacios.
     calendario: calendario.filter((d) => d.slots.length > 0),
   });
@@ -121,25 +88,29 @@ async function disponibilidadPorHash(req, res) {
 
 /**
  * POST /api/reservar/:hash
- * Body: { nombre, apellido, dni, fecha, horaInicio, consultorioId?, motivoConsulta?, wa, fw? }
+ * Body: { nombre, apellido, dni, whatsapp, fecha, horaInicio, consultorioId?, motivoConsulta? }
  *
  * Reserva sin sesion. El paciente se identifica por DNI: si ya existe se
  * reutiliza, y si no se crea como INVITADO (usuario sin credenciales).
+ *
+ * `whatsapp` lo escribe el propio paciente y es obligatorio: es el unico canal
+ * que tiene el profesional para contactarlo despues, porque una reserva por
+ * enlace no deja email ni cuenta.
  */
 async function reservarPorHash(req, res) {
   const medico = await medicoDelHash(req.params.hash);
 
   const { nombre, apellido, dni, fecha, horaInicio, consultorioId = null, motivoConsulta = null } = req.body;
 
-  // El numero se toma del parametro de entrada, NUNCA de un campo editable.
-  const whatsapp = normalizarWhatsapp(req.body.wa ?? req.query.wa);
+  // Lo carga el paciente en el formulario. `wa` se sigue aceptando por
+  // compatibilidad con enlaces viejos que lo traian en la URL.
+  const whatsapp = normalizarWhatsapp(req.body.whatsapp ?? req.body.wa);
   if (!whatsapp) {
     throw ApiError.badRequest(
-      'El enlace no incluye un numero de WhatsApp valido. Pedile al consultorio el enlace con tu numero.'
+      'Ingresa un numero de WhatsApp valido: es la unica forma que tiene el consultorio '
+      + 'de comunicarse con vos.'
     );
   }
-  const firma = verificarFirmaWhatsapp(whatsapp, req.body.fw ?? req.query.fw);
-  if (!firma.valido) throw ApiError.badRequest('El enlace esta alterado o vencido. Pedi uno nuevo.');
 
   if (fecha < hoyIso()) throw ApiError.badRequest('No se pueden reservar turnos en fechas pasadas');
 
@@ -158,9 +129,8 @@ async function reservarPorHash(req, res) {
   // Paciente: se reutiliza por DNI o se crea como invitado.
   let paciente = await Paciente.findByDni(dni);
   if (paciente) {
-    // Si no tenia numero cargado, se completa. Si ya tenia, NO se sobreescribe:
-    // el telefono de origen no se modifica ni se borra.
-    await Paciente.completarWhatsappSiFalta(paciente.id, whatsapp);
+    // Se guarda el ultimo numero informado: es el que sirve para contactarlo.
+    await Paciente.actualizarWhatsapp(paciente.id, whatsapp);
   } else {
     const pacienteId = await Paciente.crearInvitado({
       nombre: nombre.trim(),
@@ -246,10 +216,13 @@ async function miEnlace(req, res) {
     // El frontend avisa si el enlace quedo apuntando a localhost, para que el
     // medico no copie algo que nadie puede abrir.
     compartible: esCompartible(base),
-    // Plantilla para compartir por WhatsApp: el consultorio reemplaza el
-    // marcador por el numero del paciente antes de enviarlo.
-    urlConWhatsapp: `${url}?wa=NUMERO_DEL_PACIENTE`,
-    ayuda: 'Agrega ?wa=<numero> al enlace para que el turno quede asociado a ese WhatsApp.',
+    /*
+     * El enlace es UNO SOLO y sirve para todos los pacientes. Ya no se arma
+     * uno por persona con su numero: el paciente escribe su WhatsApp en el
+     * formulario de reserva y queda guardado en el turno.
+     */
+    ayuda: 'Compartí este mismo enlace con todos tus pacientes. '
+      + 'Cada uno ingresa su WhatsApp al reservar y lo vas a ver en el turno.',
   });
 }
 

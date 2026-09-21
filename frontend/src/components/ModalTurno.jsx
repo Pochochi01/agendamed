@@ -7,8 +7,9 @@
  *                         numero de afiliado (react-hook-form)
  *   "Historia clinica" -> lista cronologica de evoluciones + dictado por voz
  *
- * El WhatsApp de origen se muestra pero NO es editable: es el numero con el
- * que el paciente entro al enlace de agendamiento y queda como dato fijo.
+ * El WhatsApp que informo el paciente al reservar se muestra con un acceso
+ * directo al chat: es el canal de contacto del turno, y en una reserva por
+ * enlace suele ser el unico (no deja email ni cuenta).
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -276,7 +277,8 @@ export default function ModalTurno({ turno, abierto, onCerrar, onCambio }) {
               )}
             </div>
             <p className="mt-1 text-xs text-emerald-800">
-              Numero con el que el paciente accedio al enlace. No se puede modificar ni borrar.
+              Numero que el paciente informo al reservar. Usalo para confirmar el turno,
+              avisar una demora o reprogramar.
             </p>
           </div>
 

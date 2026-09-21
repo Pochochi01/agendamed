@@ -2,17 +2,16 @@
  * pages/medico/MedicoEnlace.jsx
  * Enlace de agendamiento directo para compartir con los pacientes.
  *
- * El enlace admite el parametro ?wa=<numero>, que asocia la reserva a ese
- * WhatsApp. Como el navegador no puede leer el telefono del paciente, el
- * numero tiene que viajar en la URL: esta pantalla arma el enlace listo para
- * enviar y ofrece abrir el chat de WhatsApp directamente.
+ * El enlace es UNICO y generico: el mismo para todos los pacientes.
+ *
+ * No se arma un enlace por persona con su telefono. El paciente carga su
+ * WhatsApp en el formulario de reserva y ese numero queda en el turno, que es
+ * donde el profesional lo necesita para comunicarse despues.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { medicosApi } from '../../api/servicios';
-import { Aviso, Cargando, Campo, Modal } from '../../components/UI';
+import { Aviso, Cargando, Modal } from '../../components/UI';
 
-/** Deja solo digitos: es lo que espera wa.me y el backend. */
-const soloDigitos = (v) => String(v || '').replace(/\D/g, '');
 
 export default function MedicoEnlace() {
   const [enlace, setEnlace] = useState(null);
@@ -21,9 +20,6 @@ export default function MedicoEnlace() {
   const [aviso, setAviso] = useState(null);
   const [procesando, setProcesando] = useState(false);
   const [confirmarRegenerar, setConfirmarRegenerar] = useState(false);
-
-  // Numero del paciente al que se le va a enviar el enlace.
-  const [numero, setNumero] = useState('');
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -80,11 +76,9 @@ export default function MedicoEnlace() {
     return <Aviso tipo="error">{error?.message || 'No se pudo cargar el enlace.'}</Aviso>;
   }
 
-  const digitos = soloDigitos(numero);
-  const enlaceParaPaciente = digitos ? `${enlace.url}?wa=${digitos}` : enlace.url;
-  const mensajeWhatsapp = encodeURIComponent(
-    `Hola! Podes reservar tu turno desde este enlace: ${enlaceParaPaciente}`
-  );
+  // Un unico enlace para todos: el paciente carga su WhatsApp al reservar.
+  const mensajeSugerido = `Hola! Podes reservar tu turno conmigo desde este enlace: ${enlace.url}`;
+  const mensajeWhatsapp = encodeURIComponent(mensajeSugerido);
 
   return (
     <div className="space-y-6">
@@ -153,56 +147,50 @@ export default function MedicoEnlace() {
         </div>
       </div>
 
-      {/* --------------------- Enlace para un paciente -------------------- */}
-      <div className="card space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">Enlace para un paciente</h2>
-          <p className="text-sm text-slate-600">
-            Al agregar el numero, el turno queda asociado a ese WhatsApp automaticamente.
-          </p>
+      {/* ------------------------- Como funciona -------------------------- */}
+      <div className="card space-y-3">
+        <h2 className="text-sm font-semibold text-slate-900">Como funciona</h2>
+
+        <ol className="space-y-2 text-sm text-slate-700">
+          <li className="flex gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-marca-100 text-xs font-bold text-marca-700">1</span>
+            <span>Compartís <b>este mismo enlace</b> con todos tus pacientes: por WhatsApp,
+              en tu perfil de redes o donde quieras.</span>
+          </li>
+          <li className="flex gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-marca-100 text-xs font-bold text-marca-700">2</span>
+            <span>El paciente entra, elige día y horario, y carga sus datos:
+              nombre, DNI y <b>su número de WhatsApp</b>.</span>
+          </li>
+          <li className="flex gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-marca-100 text-xs font-bold text-marca-700">3</span>
+            <span>El turno aparece en tu agenda con ese número, y desde ahí podés
+              <b> abrirle el chat</b> para confirmar, avisar una demora o reprogramar.</span>
+          </li>
+        </ol>
+
+        <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+          No hace falta que armes un enlace por paciente ni que consigas su número de antemano:
+          lo carga cada uno al reservar.
+        </p>
+      </div>
+
+      {/* ---------------------- Compartir por WhatsApp -------------------- */}
+      <div className="card space-y-3">
+        <h2 className="text-sm font-semibold text-slate-900">Compartir</h2>
+        <div className="flex flex-wrap gap-2">
+          <a href={`https://wa.me/?text=${mensajeWhatsapp}`}
+            target="_blank" rel="noreferrer" className="btn-exito">
+            Enviar por WhatsApp
+          </a>
+          <button type="button" className="btn-secundario"
+            onClick={() => copiar(mensajeSugerido, 'Mensaje')}>
+            Copiar mensaje sugerido
+          </button>
         </div>
-
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Por que hay que poner el numero
-          </p>
-          <p className="mt-1">
-            El navegador del paciente no puede leer su propio telefono: ninguna pagina web accede
-            a ese dato. Por eso el numero tiene que ir en el enlace. Cuando el paciente entra, lo
-            ve cargado y bloqueado, sin poder cambiarlo.
-          </p>
-        </div>
-
-        <Campo label="WhatsApp del paciente" ayuda="Con codigo de pais y area. Ej: 5493511234567">
-          <input type="text" className="input font-mono" inputMode="numeric"
-            value={numero} onChange={(e) => setNumero(e.target.value)}
-            placeholder="5493511234567" />
-        </Campo>
-
-        {digitos.length >= 8 && (
-          <>
-            <div className="flex flex-wrap gap-2">
-              <input type="text" readOnly value={enlaceParaPaciente}
-                className="input flex-1 font-mono text-xs"
-                onFocus={(e) => e.target.select()} />
-              <button type="button" className="btn-secundario"
-                onClick={() => copiar(enlaceParaPaciente, 'Enlace personalizado')}>
-                Copiar
-              </button>
-            </div>
-
-            <a href={`https://wa.me/${digitos}?text=${mensajeWhatsapp}`}
-              target="_blank" rel="noreferrer" className="btn-exito">
-              Enviar por WhatsApp
-            </a>
-          </>
-        )}
-
-        {numero && digitos.length < 8 && (
-          <p className="text-xs text-amber-600">
-            El numero parece incompleto: incluí codigo de pais y area.
-          </p>
-        )}
+        <p className="rounded-lg bg-slate-50 p-3 text-xs italic text-slate-600">
+          &ldquo;{mensajeSugerido}&rdquo;
+        </p>
       </div>
 
       {/* ---------------------- Confirmar regeneracion -------------------- */}

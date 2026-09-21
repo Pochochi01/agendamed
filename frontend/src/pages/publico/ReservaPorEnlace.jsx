@@ -6,17 +6,17 @@
  * libres de ese profesional, y el paciente reserva cargando nombre y DNI.
  *
  * --------------------------------------------------------------------------
- * El numero de WhatsApp
+ * El numero de WhatsApp lo carga el paciente
  * --------------------------------------------------------------------------
- * Llega como parametro del enlace (?wa=549...). Ninguna API del navegador
- * expone el telefono del dispositivo, asi que el numero tiene que venir en la
- * URL: el consultorio o un bot arma el enlace con el numero del paciente.
+ * El enlace del medico es generico: el mismo para todos, sin el numero de
+ * nadie. Es el paciente quien escribe su WhatsApp en este formulario, y ese
+ * numero queda guardado en el turno para que el consultorio pueda
+ * comunicarse despues.
  *
- * Se captura al entrar y se guarda en sessionStorage, para que sobreviva a la
- * navegacion interna (elegir dia, recargar) sin depender de que el parametro
- * siga en la barra de direcciones. En el formulario se muestra en un campo
- * `readOnly disabled`, y al enviar se toma SIEMPRE de ahi: el paciente no lo
- * puede modificar ni borrar.
+ * Antes venia como parametro del enlace (?wa=...), lo que obligaba a armar un
+ * enlace por paciente. Se acepta todavia ese parametro para PRECARGAR el
+ * campo si alguien abre un enlace viejo, pero el campo es editable: el
+ * paciente puede corregirlo.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
@@ -25,27 +25,16 @@ import { reservaPublicaApi } from '../../api/servicios';
 import { Aviso, Cargando, Campo, Modal, SinDatos } from '../../components/UI';
 import { DIAS_CORTOS, diaSemanaDeFecha, fechaLarga, hora, moneda } from '../../utils/formato';
 
-/** Clave de sessionStorage, por enlace: cada medico tiene la suya. */
-const claveWa = (hash) => `agendamed_wa_${hash}`;
-
 export default function ReservaPorEnlace() {
   const { hash } = useParams();
   const [params] = useSearchParams();
 
   /**
-   * El numero se resuelve una sola vez: primero el parametro de la URL y, si
-   * no viene, lo que se guardo al entrar. Nunca de un campo del formulario.
+   * Si el enlace trae ?wa= (formato antiguo) se usa para PRECARGAR el campo.
+   * No es obligatorio ni de solo lectura: el paciente lo completa o lo
+   * corrige en el formulario.
    */
-  const whatsappDeOrigen = useMemo(() => {
-    const deLaUrl = params.get('wa');
-    if (deLaUrl) {
-      try { sessionStorage.setItem(claveWa(hash), deLaUrl); } catch { /* modo privado */ }
-      return deLaUrl;
-    }
-    try { return sessionStorage.getItem(claveWa(hash)); } catch { return null; }
-  }, [params, hash]);
-
-  const firmaDeOrigen = useMemo(() => params.get('fw'), [params]);
+  const whatsappPrecargado = useMemo(() => params.get('wa') || '', [params]);
 
   const [datos, setDatos] = useState(null);
   const [diaElegido, setDiaElegido] = useState(null);
@@ -57,16 +46,16 @@ export default function ReservaPorEnlace() {
   const [reserva, setReserva] = useState(null);   // resultado exitoso
 
   const { register, handleSubmit, formState: { errors } } = useForm({
-    defaultValues: { nombre: '', apellido: '', dni: '', motivoConsulta: '' },
+    defaultValues: {
+      nombre: '', apellido: '', dni: '', motivoConsulta: '',
+      whatsapp: whatsappPrecargado,
+    },
   });
 
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      const respuesta = await reservaPublicaApi.disponibilidad(hash, {
-        wa: whatsappDeOrigen || undefined,
-        fw: firmaDeOrigen || undefined,
-      });
+      const respuesta = await reservaPublicaApi.disponibilidad(hash);
       setDatos(respuesta);
       setDiaElegido((previo) => (
         previo && respuesta.calendario.some((d) => d.fecha === previo)
@@ -79,7 +68,7 @@ export default function ReservaPorEnlace() {
     } finally {
       setCargando(false);
     }
-  }, [hash, whatsappDeOrigen, firmaDeOrigen]);
+  }, [hash]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -126,13 +115,13 @@ export default function ReservaPorEnlace() {
         nombre: valores.nombre,
         apellido: valores.apellido,
         dni: valores.dni,
+        // El numero lo escribio el paciente: queda guardado en el turno para
+        // que el consultorio pueda contactarlo.
+        whatsapp: valores.whatsapp,
         fecha: slotElegido.fecha,
         horaInicio: slotElegido.horaInicio,
         consultorioId: slotElegido.consultorioId,
         motivoConsulta: valores.motivoConsulta || null,
-        // El numero viaja desde el origen, no desde el formulario.
-        wa: whatsappDeOrigen,
-        fw: firmaDeOrigen || undefined,
       });
       setReserva(respuesta);
       setSlotElegido(null);
@@ -199,19 +188,6 @@ export default function ReservaPorEnlace() {
             </div>
           </div>
         </div>
-
-        {/* ------------------ Aviso de WhatsApp faltante ----------------- */}
-        {!datos.whatsapp.presente && (
-          <Aviso tipo="alerta">
-            Este enlace no trae tu numero de WhatsApp, asi que no se puede completar la reserva.
-            Pedile al consultorio el enlace con tu numero incluido.
-          </Aviso>
-        )}
-        {datos.whatsapp.presente && !datos.whatsapp.firmaValida && (
-          <Aviso tipo="error">
-            El enlace parece alterado. Pedi uno nuevo al consultorio.
-          </Aviso>
-        )}
 
         {error && (
           <Aviso tipo="error" detalles={error.detalles} onCerrar={() => setError(null)}>
@@ -337,7 +313,6 @@ export default function ReservaPorEnlace() {
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                   {slotsVisibles.map((slot) => (
                     <button key={slot.horaInicio} type="button"
-                      disabled={!datos.whatsapp.presente}
                       onClick={() => setSlotElegido(slot)}
                       className="rounded-lg border border-slate-200 px-2 py-2 text-sm font-medium text-slate-700 transition hover:border-marca-500 hover:bg-marca-50 hover:text-marca-700 disabled:cursor-not-allowed disabled:opacity-40">
                       {hora(slot.horaInicio)}
@@ -390,17 +365,26 @@ export default function ReservaPorEnlace() {
                 })} />
             </Campo>
 
-            {/* WhatsApp: de solo lectura. Viene del enlace, no se puede editar. */}
-            <div>
-              <label className="label">WhatsApp</label>
-              <input type="text" readOnly disabled
-                value={datos.whatsapp.numero || ''}
-                className="input cursor-not-allowed bg-slate-100 font-mono text-slate-600" />
-              <p className="mt-1 text-xs text-slate-500">
-                Es el numero desde el que accediste al enlace. Queda asociado al turno y no se
-                puede modificar. Si no es el correcto, pedile al consultorio un enlace nuevo.
-              </p>
-            </div>
+            {/* El paciente carga su WhatsApp: es el contacto del turno. */}
+            <Campo label="WhatsApp" requerido error={errors.whatsapp?.message}
+              ayuda="Con codigo de area, sin el 0 ni el 15. Ej: 3511234567">
+              <input type="tel" inputMode="tel" className="input font-mono"
+                placeholder="3511234567"
+                {...register('whatsapp', {
+                  required: 'Ingresa tu numero de WhatsApp',
+                  validate: (valor) => {
+                    const digitos = String(valor || '').replace(/\D/g, '');
+                    if (digitos.length < 8) return 'El numero parece incompleto';
+                    if (digitos.length > 15) return 'El numero es demasiado largo';
+                    return true;
+                  },
+                })} />
+            </Campo>
+
+            <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+              El consultorio usa este numero para comunicarse con vos: confirmar el turno,
+              avisarte una demora o reprogramar. Revisa que este bien escrito.
+            </p>
 
             <Campo label="Motivo de la consulta" error={errors.motivoConsulta?.message}>
               <textarea rows={2} className="input" maxLength={255}
@@ -413,7 +397,7 @@ export default function ReservaPorEnlace() {
                 Volver
               </button>
               <button type="submit" className="btn-primario"
-                disabled={enviando || !datos.whatsapp.presente}>
+                disabled={enviando}>
                 {enviando ? 'Reservando...' : 'Confirmar turno'}
               </button>
             </div>
