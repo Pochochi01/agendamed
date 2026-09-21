@@ -18,6 +18,14 @@ const mp = require('./config/mercadopago');
     process.exit(1);
   }
 
+  /*
+   * Chequeo de esquema: avisa si falta aplicar alguna migracion.
+   * Evita que un despliegue con la base desactualizada falle mucho despues,
+   * en medio de una operacion, con un error de MySQL dificil de interpretar
+   * (fue el caso de ER_DATA_TOO_LONG en medicos.hash_publico).
+   */
+  await require('./config/verificarEsquema').verificarEImprimir();
+
   if (!mp.habilitado) {
     console.warn('[mercadopago] Sin MP_ACCESS_TOKEN: los pagos corren en modo SIMULADO');
   }

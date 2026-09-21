@@ -77,6 +77,15 @@ El migrador lleva registro en la tabla `migraciones`, así que se puede correr l
 | `npm run db:seed` | Datos de prueba. **Vacía las tablas** — nunca en producción. |
 | `npm run db:admin -- <email> <pass>` | Crea o recupera la cuenta de administrador sin tocar el resto. |
 
+> **El servidor avisa si la base quedó atrás.** Al arrancar verifica que las tablas y los largos de columna coincidan con lo que el código espera ([verificarEsquema.js](backend/src/config/verificarEsquema.js)). Si falta una migración lo dice al instante, con el comando exacto, en lugar de fallar horas después en medio de una operación:
+> ```
+> [esquema] LA BASE DE DATOS ESTA DESACTUALIZADA
+>   - "medicos.hash_publico" es varchar(22) pero el codigo puede generar
+>     hasta 255 caracteres. Guardar un valor largo daria ER_DATA_TOO_LONG
+>   Migracion(es) pendiente(s): 004_hash_publico_255.sql
+>   Para corregirlo, sin perder datos:  npm run db:up
+> ```
+
 ## Despliegue
 
 Ver **[DEPLOY.md](DEPLOY.md)** para la guía completa en un VPS (Nginx + PM2 + MySQL + HTTPS).

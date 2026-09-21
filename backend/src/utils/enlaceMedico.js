@@ -29,8 +29,38 @@
  *     el anterior deja de resolver.
  */
 
-/** Longitud maxima, alineada con la columna VARCHAR(120) de `medicos`. */
-const LARGO_MAXIMO = 120;
+/**
+ * ==========================================================================
+ * Longitud: por que 255 y no un numero cualquiera
+ * ==========================================================================
+ * El slug se arma con tres columnas de la base, asi que su largo maximo no es
+ * arbitrario: se deduce de ellas.
+ *
+ *     medicos.matricula   VARCHAR(40)
+ *     users.apellido      VARCHAR(80)
+ *     users.nombre        VARCHAR(80)
+ *     separadores                   2
+ *     sufijo de regeneracion   hasta 6   ("-id123")
+ *     -------------------------------------------
+ *     PEOR CASO                   208 caracteres
+ *
+ * La columna `medicos.hash_publico` es VARCHAR(255): entra el peor caso con
+ * margen, asi que el recorte de abajo no llega a activarse nunca en la
+ * practica y queda solo como red de seguridad.
+ *
+ * Historia: la columna nacio como CHAR(22) (token aleatorio). Al pasar al
+ * slug legible se amplio a 120, que alcanzaba para nombres normales pero NO
+ * para el peor caso, y una base sin la migracion aplicada seguia en CHAR(22)
+ * y fallaba con ER_DATA_TOO_LONG en cuanto un medico tenia un nombre un poco
+ * largo. Ver db/migrations/004_hash_publico_255.sql
+ *
+ * SI SE CAMBIA ESTE NUMERO hay que cambiar la columna en la misma migracion.
+ * El chequeo de arranque (config/verificarEsquema.js) avisa si se desalinean.
+ */
+const LARGO_MAXIMO = 255;
+
+/** Margen que se reserva para el sufijo de regeneracion al recortar. */
+const LARGO_SUFIJO_RESERVADO = 8;
 
 /**
  * Normaliza un texto a un fragmento de URL: sin tildes, en minusculas y con
@@ -61,20 +91,28 @@ function aFragmento(texto) {
  * @returns {string} por ejemplo "mp-14523-romero-laura"
  */
 function generarIdentificador({ matricula, apellido, nombre, sufijo = null }) {
-  const partes = [aFragmento(matricula), aFragmento(apellido), aFragmento(nombre)]
-    .filter(Boolean);
+  let base = [aFragmento(matricula), aFragmento(apellido), aFragmento(nombre)]
+    .filter(Boolean)
+    .join('-');
 
-  if (sufijo) partes.push(String(sufijo));
+  const fragmentoSufijo = sufijo ? `-${aFragmento(String(sufijo))}` : '';
 
-  let identificador = partes.join('-');
+  /*
+   * El recorte se hace sobre la BASE, antes de pegar el sufijo.
+   *
+   * Antes se recortaba el resultado ya con el sufijo puesto, y con un nombre
+   * largo el recorte se comia justamente el sufijo: regenerar devolvia el
+   * mismo identificador, el enlace viejo seguia sirviendo y
+   * construirIdentificadorUnico entraba en un bucle de colisiones.
+   */
+  const espacioParaBase = LARGO_MAXIMO - Math.max(fragmentoSufijo.length, LARGO_SUFIJO_RESERVADO);
 
-  // Si se pasa del largo de la columna se recorta por guion, para no cortar
-  // una palabra por la mitad.
-  if (identificador.length > LARGO_MAXIMO) {
-    identificador = identificador.slice(0, LARGO_MAXIMO).replace(/-[^-]*$/, '');
+  if (base.length > espacioParaBase) {
+    // Se corta por guion para no partir una palabra al medio.
+    base = base.slice(0, espacioParaBase).replace(/-[^-]*$/, '');
   }
 
-  return identificador;
+  return `${base}${fragmentoSufijo}`;
 }
 
 /**
@@ -103,4 +141,5 @@ module.exports = {
   esIdentificadorValido,
   aFragmento,
   LARGO_MAXIMO,
+  LARGO_SUFIJO_RESERVADO,
 };

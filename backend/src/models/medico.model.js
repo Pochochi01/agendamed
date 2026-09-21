@@ -4,7 +4,7 @@
  * resueltos). El medico es el tenant del sistema.
  */
 const { query, queryOne, transaction } = require('../config/db');
-const { generarIdentificador } = require('../utils/enlaceMedico');
+const { generarIdentificador, LARGO_MAXIMO } = require('../utils/enlaceMedico');
 
 const Medico = {
   findById(id) {
@@ -125,6 +125,21 @@ const Medico = {
 
     for (let sufijo = desde; sufijo < desde + 50; sufijo += 1) {
       const candidato = generarIdentificador({ ...base, sufijo: sufijo || null });
+
+      /*
+       * Guarda contra ER_DATA_TOO_LONG.
+       *
+       * generarIdentificador ya recorta a LARGO_MAXIMO, asi que esto no
+       * deberia dispararse nunca. Esta igual porque el costo es cero y
+       * convierte un posible error de MySQL a mitad de un UPDATE en una
+       * excepcion clara, con el dato que hace falta para entenderla.
+       */
+      if (candidato.length > LARGO_MAXIMO) {
+        throw new Error(
+          `El identificador generado mide ${candidato.length} caracteres y el maximo es `
+          + `${LARGO_MAXIMO}. Revisa utils/enlaceMedico.js y la columna medicos.hash_publico.`
+        );
+      }
 
       // eslint-disable-next-line no-await-in-loop
       const ocupado = await queryOne(

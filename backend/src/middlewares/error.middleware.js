@@ -35,6 +35,26 @@ function traducirErrorMysql(error) {
       return ApiError.conflict('No se puede eliminar: hay registros asociados');
     case 'ER_CHECK_CONSTRAINT_VIOLATED':
       return ApiError.badRequest('Los datos no cumplen las reglas de la base de datos');
+    case 'ER_DATA_TOO_LONG': {
+      /*
+       * Un valor no entra en su columna. Casi siempre significa que la base
+       * quedo atras respecto del codigo: una migracion sin aplicar.
+       *
+       * Se loguea la columna exacta y el comando para arreglarlo, porque el
+       * mensaje crudo de MySQL ("Data too long for column 'x' at row 1") no
+       * dice que hacer. Pasa a 500 y no a 400: no es culpa de quien uso la
+       * aplicacion, es un problema de configuracion del servidor.
+       */
+      const columna = /column '([^']+)'/.exec(error.sqlMessage || '')?.[1] || 'desconocida';
+      // eslint-disable-next-line no-console
+      console.error(
+        `\n[db] ER_DATA_TOO_LONG en la columna "${columna}".`
+        + '\n[db] Suele ser una migracion sin aplicar. Corre:  npm run db:up\n'
+      );
+      return new ApiError(500,
+        'El servidor no pudo guardar el dato porque la base esta desactualizada. '
+        + 'Avisa al administrador.');
+    }
     case 'ECONNREFUSED':
     case 'PROTOCOL_CONNECTION_LOST':
       return new ApiError(503, 'La base de datos no esta disponible');

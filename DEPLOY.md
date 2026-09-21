@@ -479,6 +479,7 @@ npm run build            # Nginx sirve el dist nuevo, no hace falta recargarlo
 | El dictado da 504 | Subí `proxy_read_timeout`, o pasá a un modelo más chico / al proveedor externo |
 | El primer dictado tarda muchísimo | Está descargando el modelo. Poné `TRANSCRIPCION_PRECARGAR=true` |
 | El enlace del médico sale con `localhost` | Falta `PUBLIC_URL` en el `.env`, o Nginx no manda `X-Forwarded-Host`. La pantalla `/medico/enlace` avisa en rojo cuando pasa |
+| `ER_DATA_TOO_LONG` al guardar | Migración sin aplicar: `npm run db:up`. El arranque del servidor ya lo avisa (`[esquema] LA BASE DE DATOS ESTA DESACTUALIZADA`) |
 | `ER_ACCESS_DENIED_ERROR` | Usuario o clave de MySQL mal en `.env` |
 | Los pagos no se acreditan | El webhook de MercadoPago tiene que apuntar al dominio público con HTTPS |
 | Certbot falla | El DNS todavía no propagó: `nslookup tudominio.com` |

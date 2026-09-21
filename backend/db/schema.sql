@@ -73,7 +73,12 @@ CREATE TABLE medicos (
   -- Se eligio legible sobre aleatorio porque el enlace se comparte por
   -- WhatsApp y un token opaco parece spam. No expone nada que la busqueda
   -- publica de medicos no muestre ya. Ver utils/enlaceMedico.js.
-  hash_publico       VARCHAR(120) NULL,
+  --
+  -- VARCHAR(255) y no menos: el largo depende del nombre del profesional y el
+  -- peor caso es matricula(40) + apellido(80) + nombre(80) + separadores(2) +
+  -- sufijo(6) = 208. Quedarse corto produce ER_DATA_TOO_LONG al guardar.
+  -- Debe mantenerse alineado con LARGO_MAXIMO de utils/enlaceMedico.js.
+  hash_publico       VARCHAR(255) NULL,
   enlace_activo      TINYINT(1)   NOT NULL DEFAULT 1,
   duracion_turno_min SMALLINT UNSIGNED NOT NULL DEFAULT 30,
   precio_consulta    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
