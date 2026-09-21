@@ -30,6 +30,7 @@ import MedicoEnlace from './pages/medico/MedicoEnlace';
 import MedicoHorarios from './pages/medico/MedicoHorarios';
 import MedicoConsultorios from './pages/medico/MedicoConsultorios';
 import MedicoCobros from './pages/medico/MedicoCobros';
+import MedicoPerfil from './pages/medico/MedicoPerfil';
 import MedicoSuscripcion from './pages/medico/MedicoSuscripcion';
 
 import ReservaPorEnlace from './pages/publico/ReservaPorEnlace';
@@ -50,6 +51,7 @@ const NAV_MEDICO = [
   { to: '/medico/consultorios', texto: 'Consultorios', icono: '🏥' },
   { to: '/medico/cobros', texto: 'Cobros online', icono: '💰' },
   { to: '/medico/suscripcion', texto: 'Suscripcion', icono: '💳' },
+  { to: '/medico/perfil', texto: 'Mi perfil', icono: '👤' },
 ];
 
 const NAV_PACIENTE = [
@@ -91,6 +93,7 @@ export default function App() {
               <Route path="consultorios" element={<MedicoConsultorios />} />
               <Route path="cobros" element={<MedicoCobros />} />
               <Route path="suscripcion" element={<MedicoSuscripcion />} />
+              <Route path="perfil" element={<MedicoPerfil />} />
             </Route>
           </Route>
 

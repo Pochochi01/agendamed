@@ -201,11 +201,62 @@ async function perfil(req, res) {
   return res.json({ ok: true, usuario: datos });
 }
 
-/** PUT /api/auth/perfil */
+/**
+ * PUT /api/auth/perfil
+ * Body: { nombre, apellido, telefono?, email?, passwordActual? }
+ *
+ * Datos de contacto y, opcionalmente, el EMAIL.
+ *
+ * Cambiar el email pide la contrasena actual. No es burocracia: el email es
+ * la credencial de acceso y el canal de recuperacion, asi que cambiarlo es
+ * quedarse con la cuenta. Si alguien encuentra una sesion abierta —un
+ * consultorio con la compu compartida es el caso tipico— sin ese paso podria
+ * apropiarse del usuario con dos clicks.
+ *
+ * El email nuevo se valida contra el resto de las cuentas antes de guardarlo.
+ */
 async function actualizarPerfil(req, res) {
   const { nombre, apellido, telefono } = req.body;
-  const usuario = await User.updatePerfil(req.usuario.id, { nombre, apellido, telefono });
-  return res.json({ ok: true, mensaje: 'Perfil actualizado', usuario });
+
+  const actual = await User.findById(req.usuario.id);
+  if (!actual) throw ApiError.notFound('Usuario no encontrado');
+
+  const emailNuevo = req.body.email ? String(req.body.email).trim().toLowerCase() : null;
+  const cambiaEmail = Boolean(emailNuevo) && emailNuevo !== String(actual.email || '').toLowerCase();
+
+  if (cambiaEmail) {
+    if (!req.body.passwordActual) {
+      throw ApiError.badRequest('Para cambiar el email ingresa tu contrasena actual');
+    }
+
+    const fila = await User.getPasswordHash(req.usuario.id);
+    if (!fila?.password_hash) {
+      throw ApiError.forbidden('Esta cuenta no tiene contrasena definida');
+    }
+
+    const coincide = await bcrypt.compare(req.body.passwordActual, fila.password_hash);
+    if (!coincide) throw ApiError.unauthorized('La contrasena actual es incorrecta');
+
+    const ocupado = await User.findByEmail(emailNuevo);
+    if (ocupado && ocupado.id !== req.usuario.id) {
+      throw ApiError.conflict('Ese email ya pertenece a otra cuenta');
+    }
+  }
+
+  const usuario = cambiaEmail
+    ? await User.updateDatosAdmin(req.usuario.id, {
+        nombre, apellido, email: emailNuevo, telefono: telefono ?? null,
+      })
+    : await User.updatePerfil(req.usuario.id, { nombre, apellido, telefono });
+
+  return res.json({
+    ok: true,
+    mensaje: cambiaEmail
+      ? 'Perfil actualizado. A partir de ahora inicia sesion con el email nuevo.'
+      : 'Perfil actualizado',
+    emailCambiado: cambiaEmail,
+    usuario,
+  });
 }
 
 /** PUT /api/auth/password */

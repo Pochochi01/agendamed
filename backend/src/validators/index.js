@@ -40,10 +40,18 @@ const login = [
   body('password').notEmpty().withMessage('La contrasena es obligatoria'),
 ];
 
+/**
+ * Perfil propio. El email es opcional: si viene y es distinto al actual, el
+ * controlador exige ademas la contrasena para confirmar la identidad.
+ */
 const actualizarPerfil = [
-  body('nombre').trim().notEmpty().isLength({ max: 80 }),
-  body('apellido').trim().notEmpty().isLength({ max: 80 }),
+  body('nombre').trim().notEmpty().withMessage('El nombre es obligatorio').isLength({ max: 80 }),
+  body('apellido').trim().notEmpty().withMessage('El apellido es obligatorio').isLength({ max: 80 }),
   body('telefono').optional({ values: 'falsy' }).trim().isLength({ max: 30 }),
+  body('email').optional({ values: 'falsy' })
+    .trim().isEmail().withMessage('Email invalido').normalizeEmail()
+    .isLength({ max: 160 }),
+  body('passwordActual').optional({ values: 'falsy' }).isString(),
 ];
 
 const cambiarPassword = [

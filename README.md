@@ -177,6 +177,31 @@ Se guarda en dos lugares con sentidos distintos: `pacientes.telefono_whatsapp` e
 
 `ausencias_medico` guarda una fila por consultorio en lugar de un `consultorio_id NULL` que signifique "todos": evita la semántica ambigua y habilita el caso de ausentarse solo en algunas sedes.
 
+### 2b. Perfil del médico — `/medico/perfil`
+
+Tres bloques que se guardan por separado, para que un error en uno no haga perder los cambios de los otros:
+
+| Bloque | Endpoint | Qué edita |
+|---|---|---|
+| Datos personales | `PUT /auth/perfil` | Nombre, apellido, teléfono |
+| Acceso | `PUT /auth/perfil` · `PUT /auth/password` | **Email** y contraseña |
+| Profesionales | `PUT /medicos/mi/perfil` | Especialidad, matrícula, precio, seña |
+
+**Cambiar el email pide la contraseña actual.** No es burocracia: el email es la credencial de acceso y el canal de recuperación, así que cambiarlo equivale a quedarse con la cuenta. Sin ese paso, alguien que encuentre una sesión abierta —una computadora compartida en el consultorio es el caso típico— podría apropiarse del usuario con dos clics. También se valida que el email nuevo no pertenezca a otra cuenta.
+
+**Especialidades: búsqueda parcial y alta.** [`SelectorEspecialidad.jsx`](frontend/src/components/SelectorEspecialidad.jsx) busca por coincidencia en **cualquier parte** del nombre:
+
+```
+"logia"   → Cardiologia, Dermatologia, Ginecologia, Neurologia, Oftalmologia, Traumatologia
+"matolog" → Dermatologia, Traumatologia
+"CARDIO"  → Cardiologia
+"cardiología" → Cardiologia        (con tilde encuentra la que no la tiene)
+```
+
+No hace falta normalizar nada en el código: la columna usa la collation `utf8mb4_unicode_ci`, que ya ignora mayúsculas **y tildes**. Los resultados se ordenan poniendo primero las que *empiezan* con el texto buscado.
+
+Si el profesional no encuentra la suya, la agrega desde el mismo desplegable (`POST /catalogo/especialidades`, requiere sesión de médico o admin). El alta es **idempotente**: si ya existe escrita distinto —`CARDIOLOGÍA` cuando está `Cardiologia`— devuelve la existente con `creada: false` en vez de duplicarla. Eso es lo que evita que el catálogo se fragmente en variantes del mismo nombre, que es el riesgo real de dejar que cualquiera escriba en él.
+
 ### 3. Obra social y número de afiliado
 
 Viven en el **paciente**, no en el turno: son datos persistentes de la persona, así que el médico los carga una vez y quedan para los turnos siguientes. `obras_sociales` es un catálogo aparte (3FN, igual que especialidades y localidades). El formulario usa `react-hook-form` y `PATCH /api/pacientes/:id/obra-social`.
@@ -449,8 +474,15 @@ Suspender a un médico lo saca de la búsqueda pública y le bloquea el login. `
 | POST 🌐 | `/registro` | Alta de médico o paciente |
 | POST 🌐 | `/login` | Devuelve JWT (rate limit: 10/15min) |
 | GET | `/perfil` | Usuario + perfil de su rol |
-| PUT | `/perfil` | Actualiza datos de contacto |
+| PUT | `/perfil` | Datos de contacto y, con la contraseña actual, el **email** |
 | PUT | `/password` | Cambio de contraseña |
+
+### `/api/catalogo`
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET 🌐 | `/especialidades?q=&limite=` | Busca por coincidencia parcial, sin distinguir caso ni tildes |
+| POST | `/especialidades` | médico/admin — agrega una al catálogo (idempotente) |
+| GET 🌐 | `/localidades` · `/obras-sociales` | Catálogos para los selects |
 
 ### `/api/medicos`
 | Método | Ruta | Rol |

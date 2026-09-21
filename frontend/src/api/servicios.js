@@ -16,7 +16,21 @@ export const authApi = {
 
 /* ------------------------------- CATALOGO ------------------------------- */
 export const catalogoApi = {
-  especialidades: () => api.get('/catalogo/especialidades').then((r) => r.data.especialidades),
+  /**
+   * @param {Object} [params]
+   * @param {string} [params.q]  busca por coincidencia en CUALQUIER parte del
+   *   nombre, sin distinguir mayusculas ni tildes. Sin `q`, trae el catalogo.
+   * @param {number} [params.limite]
+   */
+  especialidades: (params = {}) =>
+    api.get('/catalogo/especialidades', { params }).then((r) => r.data.especialidades),
+
+  /**
+   * Agrega una especialidad al catalogo. Idempotente: si ya existe (aun
+   * escrita distinto) devuelve la existente con `creada: false`.
+   */
+  crearEspecialidad: (nombre) =>
+    api.post('/catalogo/especialidades', { nombre }).then((r) => r.data),
   localidades: () => api.get('/catalogo/localidades').then((r) => r.data.localidades),
   obrasSociales: () => api.get('/catalogo/obras-sociales').then((r) => r.data.obrasSociales),
 };
