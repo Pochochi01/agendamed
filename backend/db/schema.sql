@@ -68,10 +68,12 @@ CREATE TABLE medicos (
   user_id            INT UNSIGNED NOT NULL,
   especialidad_id    INT UNSIGNED NOT NULL,
   matricula          VARCHAR(40)  NOT NULL,
-  -- Hash del enlace publico /reservar/:hash. Aleatorio y no enumerable: no se
-  -- expone el id autoincremental en un enlace que se comparte por WhatsApp.
-  -- Se puede regenerar para invalidar el enlace anterior.
-  hash_publico       CHAR(22)     NULL,
+  -- Identificador del enlace publico /reservar/:id.
+  -- Formato legible: matricula-apellido-nombre (ej: "mp-14523-romero-laura").
+  -- Se eligio legible sobre aleatorio porque el enlace se comparte por
+  -- WhatsApp y un token opaco parece spam. No expone nada que la busqueda
+  -- publica de medicos no muestre ya. Ver utils/enlaceMedico.js.
+  hash_publico       VARCHAR(120) NULL,
   enlace_activo      TINYINT(1)   NOT NULL DEFAULT 1,
   duracion_turno_min SMALLINT UNSIGNED NOT NULL DEFAULT 30,
   precio_consulta    DECIMAL(10,2) NOT NULL DEFAULT 0.00,

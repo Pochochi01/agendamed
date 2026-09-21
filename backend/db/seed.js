@@ -171,11 +171,17 @@ const PASSWORD_DEMO = 'Agenda2026';
 
     /* ------------------- Enlaces de agendamiento directo ---------------- */
     console.log('[seed] Enlaces publicos...');
-    const { generarHashPublico } = require('../src/utils/hash');
-    const hashRomero = generarHashPublico();
+    // El identificador se deriva de matricula + apellido + nombre, igual que
+    // lo hace la aplicacion (ver utils/enlaceMedico.js).
+    const { generarIdentificador } = require('../src/utils/enlaceMedico');
+    const hashRomero = generarIdentificador({
+      matricula: 'MP-14523', apellido: 'Romero', nombre: 'Laura',
+    });
     await cx.execute('UPDATE medicos SET hash_publico = ? WHERE id = ?', [hashRomero, medicoRomero]);
-    await cx.execute('UPDATE medicos SET hash_publico = ? WHERE id = ?',
-      [generarHashPublico(), medicoPaz]);
+    await cx.execute('UPDATE medicos SET hash_publico = ? WHERE id = ?', [
+      generarIdentificador({ matricula: 'MP-20981', apellido: 'Paz', nombre: 'Martin' }),
+      medicoPaz,
+    ]);
 
     /* --------------- Paciente INVITADO (llego por el enlace) ------------ */
     // Simula a alguien que reservo desde WhatsApp sin tener cuenta: usuario

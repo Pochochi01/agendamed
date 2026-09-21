@@ -115,7 +115,25 @@ Vite proxea `/api` al backend, así que no hay que tocar CORS en desarrollo.
 
 Ruta **pública, sin sesión**. El médico comparte el enlace (`/medico/enlace`) y el paciente entra, ve los turnos libres de ese profesional y reserva con nombre y DNI.
 
-El identificador es un **hash aleatorio de 128 bits** (`medicos.hash_publico`), no el id: con `/reservar/1` cualquiera recorrería la cartilla completa. Se puede regenerar para invalidar el enlace anterior, o desactivar sin perderlo.
+**El identificador es legible**, armado con matrícula + apellido + nombre:
+
+```
+/reservar/mp-14523-romero-laura
+```
+
+Antes era un token aleatorio (`elvJc7LnEfGs2EDCuuW5Sw`). Se cambió porque el enlace se comparte por WhatsApp y un token opaco parece spam; así el paciente reconoce de quién es antes de abrirlo. [`enlaceMedico.js`](backend/src/utils/enlaceMedico.js) quita tildes, pasa a minúsculas y colapsa símbolos a guiones, así que `Núñez, José` → `nunez-jose`.
+
+> **Lo que se pierde, dicho explícitamente.** Un identificador legible es **adivinable**: sabiendo matrícula y nombre se puede construir el enlace sin que lo compartan. Eso no filtra nada nuevo —la página muestra nombre, especialidad, precio y turnos libres, exactamente lo que ya devuelve la búsqueda pública de `/api/medicos` a cualquiera—, pero conviene tenerlo claro: el enlace es un atajo, no un secreto.
+>
+> Lo que sí se pierde es invalidar rotando el identificador, porque regenerarlo daría el mismo texto. Se conserva de dos formas: `enlace_activo` lo apaga sin perderlo, y **regenerar agrega un sufijo numérico** (`...-romero-laura-2`), con lo que el anterior deja de resolver.
+
+**La URL funciona en producción sin configurar nada.** El enlace se armaba con `FRONTEND_URL`, y si esa variable quedaba en `http://localhost:5173` el médico copiaba algo inservible — un error silencioso, porque el enlace *se ve* bien. Ahora [`urlPublica.js`](backend/src/utils/urlPublica.js) resuelve la base en este orden:
+
+1. `PUBLIC_URL` del `.env` — control explícito, gana siempre
+2. El dominio que informa el proxy (`X-Forwarded-Host` / `Host`), que detrás de Nginx es el real
+3. `FRONTEND_URL` como último recurso
+
+En desarrollo el paso 2 se descarta a propósito: el proxy de Vite reescribe el `Host` a `localhost:4000` (el puerto de la API, que no sirve el frontend), así que se cae a `FRONTEND_URL`, que sí conoce el 5173. Si aun así el enlace queda apuntando a localhost, la pantalla del médico lo **avisa en rojo** en lugar de dejarlo copiar algo roto.
 
 **Paciente invitado.** Reservar no requiere cuenta. Para no duplicar el nombre en otra tabla y romper la 3FN, se crea igual una fila en `users`, pero con `email` y `password_hash` en `NULL`; eso es la marca de "no puede iniciar sesión" y el login lo rechaza explícitamente. Si más adelante ese paciente se registra con el mismo DNI, **reclama su cuenta**: se le agregan las credenciales al usuario existente y conserva sus turnos y su historia clínica.
 

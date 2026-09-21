@@ -4,7 +4,7 @@
  * resueltos). El medico es el tenant del sistema.
  */
 const { query, queryOne, transaction } = require('../config/db');
-const { generarHashPublico } = require('../utils/hash');
+const { generarIdentificador } = require('../utils/enlaceMedico');
 
 const Medico = {
   findById(id) {
@@ -88,26 +88,75 @@ const Medico = {
   },
 
   /**
-   * Devuelve el hash publico del medico, generandolo si todavia no tiene.
-   * Los medicos creados antes de este modulo lo reciben en el primer acceso.
+   * Devuelve el identificador publico del medico, generandolo si no tiene.
+   *
+   * Tambien MIGRA los que todavia tienen el token aleatorio del formato
+   * anterior: se detectan porque no contienen guion y miden 22 caracteres.
+   * Asi un medico que no paso por la migracion SQL igual obtiene su enlace
+   * legible la primera vez que entra a /medico/enlace.
    */
   async asegurarHashPublico(id) {
     const medico = await Medico.findById(id);
     if (!medico) return null;
-    if (medico.hash_publico) return medico.hash_publico;
 
-    const hash = generarHashPublico();
-    await query('UPDATE medicos SET hash_publico = ? WHERE id = ?', [hash, id]);
-    return hash;
+    const esFormatoViejo = medico.hash_publico
+      && /^[A-Za-z0-9_-]{22}$/.test(medico.hash_publico)
+      && !medico.hash_publico.includes('-');
+
+    if (medico.hash_publico && !esFormatoViejo) return medico.hash_publico;
+
+    const identificador = await Medico.construirIdentificadorUnico(medico);
+    await query('UPDATE medicos SET hash_publico = ? WHERE id = ?', [identificador, id]);
+    return identificador;
   },
 
   /**
-   * Genera un hash nuevo: invalida el enlace anterior.
+   * Arma el identificador y garantiza que no colisione con otro medico.
+   *
+   * La matricula es UNIQUE, asi que en la practica no deberia repetirse; el
+   * bucle cubre el caso de dos matriculas que normalizan igual
+   * ("MP 123" y "MP-123").
+   *
+   * @param {Object} medico  fila de v_medicos
+   * @param {number} [desde] primer sufijo a probar (lo usa regenerar)
+   */
+  async construirIdentificadorUnico(medico, desde = 0) {
+    const base = { matricula: medico.matricula, apellido: medico.apellido, nombre: medico.nombre };
+
+    for (let sufijo = desde; sufijo < desde + 50; sufijo += 1) {
+      const candidato = generarIdentificador({ ...base, sufijo: sufijo || null });
+
+      // eslint-disable-next-line no-await-in-loop
+      const ocupado = await queryOne(
+        'SELECT id FROM medicos WHERE hash_publico = ? AND id <> ? LIMIT 1',
+        [candidato, medico.id]
+      );
+      if (!ocupado) return candidato;
+    }
+
+    // Salida de emergencia: el id es unico por definicion.
+    return generarIdentificador({ ...base, sufijo: `id${medico.id}` });
+  },
+
+  /**
+   * Genera un identificador nuevo: invalida el enlace anterior.
    * Sirve si el medico compartio el enlace donde no debia.
+   *
+   * Como el slug se deriva de datos fijos (matricula y nombre), regenerarlo
+   * daria el mismo texto. Por eso se agrega un sufijo numerico incremental:
+   *   mp-14523-romero-laura -> mp-14523-romero-laura-2 -> ...-3
+   * Asi el enlace viejo deja de resolver, que es el objetivo.
    */
   async regenerarHashPublico(id) {
-    const hash = generarHashPublico();
-    await query('UPDATE medicos SET hash_publico = ? WHERE id = ?', [hash, id]);
+    const medico = await Medico.findById(id);
+    if (!medico) return null;
+
+    // Se arranca del sufijo siguiente al actual, si ya tenia uno.
+    const coincidencia = /-(\d+)$/.exec(medico.hash_publico || '');
+    const siguiente = coincidencia ? Number(coincidencia[1]) + 1 : 2;
+
+    const identificador = await Medico.construirIdentificadorUnico(medico, siguiente);
+    await query('UPDATE medicos SET hash_publico = ? WHERE id = ?', [identificador, id]);
     return Medico.findById(id);
   },
 

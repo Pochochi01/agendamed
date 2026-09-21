@@ -28,7 +28,8 @@ const Medico = require('../models/medico.model');
 const Paciente = require('../models/paciente.model');
 const Turno = require('../models/turno.model');
 const ApiError = require('../utils/ApiError');
-const { esHashPublicoValido } = require('../utils/hash');
+const { esIdentificadorValido } = require('../utils/enlaceMedico');
+const { baseUrlPublica, esCompartible } = require('../utils/urlPublica');
 const { slotsDelRango, buscarSlot } = require('../utils/disponibilidad');
 const { hoyIso } = require('../utils/tiempo');
 
@@ -61,9 +62,9 @@ function verificarFirmaWhatsapp(numero, firma) {
   return { valido, verificado: valido };
 }
 
-/** Resuelve el medico del hash o lanza 404. */
+/** Resuelve el medico del identificador del enlace o lanza 404. */
 async function medicoDelHash(hash) {
-  if (!esHashPublicoValido(hash)) throw ApiError.notFound('El enlace no es valido');
+  if (!esIdentificadorValido(hash)) throw ApiError.notFound('El enlace no es valido');
 
   const medico = await Medico.findByHashPublico(hash);
   if (!medico) throw ApiError.notFound('El enlace no es valido o fue dado de baja');
@@ -227,17 +228,24 @@ async function reservarPorHash(req, res) {
  * Devuelve el enlace para compartir. Lo genera si el medico no lo tenia.
  */
 async function miEnlace(req, res) {
-  const hash = await Medico.asegurarHashPublico(req.medico.id);
+  const identificador = await Medico.asegurarHashPublico(req.medico.id);
   const medico = await Medico.findById(req.medico.id);
-  const { frontendUrl } = require('../config/env');
 
-  const url = `${frontendUrl}/reservar/${hash}`;
+  // La base se deduce de la request (dominio real detras de Nginx) en vez de
+  // depender de FRONTEND_URL, que suele quedar en localhost. Ver urlPublica.js
+  const base = baseUrlPublica(req);
+  const url = `${base}/reservar/${identificador}`;
 
   return res.json({
     ok: true,
-    hash,
+    hash: identificador,
+    identificador,
     url,
+    base,
     activo: Boolean(medico.enlace_activo),
+    // El frontend avisa si el enlace quedo apuntando a localhost, para que el
+    // medico no copie algo que nadie puede abrir.
+    compartible: esCompartible(base),
     // Plantilla para compartir por WhatsApp: el consultorio reemplaza el
     // marcador por el numero del paciente antes de enviarlo.
     urlConWhatsapp: `${url}?wa=NUMERO_DEL_PACIENTE`,
@@ -248,12 +256,15 @@ async function miEnlace(req, res) {
 /** POST /api/medicos/mi/enlace/regenerar  (medico) */
 async function regenerarEnlace(req, res) {
   const medico = await Medico.regenerarHashPublico(req.medico.id);
-  const { frontendUrl } = require('../config/env');
+  const base = baseUrlPublica(req);
+
   return res.json({
     ok: true,
     mensaje: 'Enlace regenerado. El anterior dejo de funcionar.',
     hash: medico.hash_publico,
-    url: `${frontendUrl}/reservar/${medico.hash_publico}`,
+    identificador: medico.hash_publico,
+    url: `${base}/reservar/${medico.hash_publico}`,
+    compartible: esCompartible(base),
   });
 }
 

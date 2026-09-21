@@ -181,7 +181,8 @@ LEFT JOIN obras_sociales os ON os.id = p.obra_social_id;
 -- 9. Backfill: hash publico para los medicos ya existentes.
 --
 -- 22 caracteres base64url a partir de UUID + RANDOM_BYTES. Los medicos nuevos
--- lo reciben desde la aplicacion (utils/hash.js).
+-- lo reciben desde la aplicacion. NOTA: la migracion 003 reemplaza estos
+-- tokens por un identificador legible (matricula-apellido-nombre).
 -- ---------------------------------------------------------------------------
 UPDATE medicos
    SET hash_publico = LEFT(

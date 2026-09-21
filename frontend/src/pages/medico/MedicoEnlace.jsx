@@ -104,6 +104,19 @@ export default function MedicoEnlace() {
         </Aviso>
       )}
 
+      {/*
+        El backend deduce el dominio de la request. Si igual quedo apuntando a
+        localhost, el enlace no sirve fuera de esta maquina: conviene avisarlo
+        antes de que lo comparta, no despues.
+      */}
+      {enlace.compartible === false && (
+        <Aviso tipo="error">
+          Este enlace apunta a <b>{enlace.base}</b>, que solo funciona en esta computadora.
+          Para compartirlo hay que acceder al sistema por su dominio publico, o definir
+          <b> PUBLIC_URL</b> en el <code>.env</code> del servidor.
+        </Aviso>
+      )}
+
       {/* --------------------------- Enlace base -------------------------- */}
       <div className="card space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -122,6 +135,11 @@ export default function MedicoEnlace() {
             Copiar
           </button>
         </div>
+
+        <p className="text-xs text-slate-500">
+          El identificador se arma con tu <b>matricula, apellido y nombre</b>, para que el
+          paciente reconozca de quien es el enlace al recibirlo.
+        </p>
 
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn-secundario btn-sm" disabled={procesando}
@@ -196,6 +214,8 @@ export default function MedicoEnlace() {
             publicado en algun lado, tendras que volver a enviar el nuevo.
           </Aviso>
           <p className="text-sm text-slate-600">
+            Como el enlace se arma con tu matricula y tu nombre, el nuevo sera el mismo con un
+            numero al final (por ejemplo <code className="font-mono text-xs">...-2</code>).
             Los turnos ya reservados no se ven afectados.
           </p>
           <div className="flex justify-end gap-2">
