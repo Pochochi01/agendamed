@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { medicosApi } from '../../api/servicios';
 import { Aviso, Cargando, Modal } from '../../components/UI';
+import TarjetaQR from '../../components/TarjetaQR';
 
 
 export default function MedicoEnlace() {
@@ -146,6 +147,15 @@ export default function MedicoEnlace() {
           </button>
         </div>
       </div>
+
+      {/* --------------------------- Codigo QR ---------------------------- */}
+      {enlace.profesional && (
+        <TarjetaQR
+          url={enlace.url}
+          profesional={enlace.profesional}
+          compartible={enlace.compartible !== false}
+        />
+      )}
 
       {/* ------------------------- Como funciona -------------------------- */}
       <div className="card space-y-3">

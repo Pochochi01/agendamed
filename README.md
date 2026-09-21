@@ -161,6 +161,28 @@ confirma  nombre · apellido · DNI  +  WhatsApp ya cargado y BLOQUEADO
                                                       con "Abrir chat" directo
 ```
 
+**Código QR imprimible.** `/medico/enlace` incluye una tarjeta con el QR del enlace, los datos del profesional y la leyenda *"Escaneá el código para sacar tu turno"*, lista para imprimir y dejar en el mostrador o pegar en la puerta del consultorio. También se descarga como PNG o se comparte con la Web Share API.
+
+```
+┌─────────────────────────────┐
+│       TURNOS ONLINE         │
+│   Dr/a. Romero, Laura       │
+│      Cardiología            │
+│      Mat. MP-14523          │
+│        ┌─────────┐          │
+│        │ ▓▓ ▓ ▓▓ │          │
+│        │ ▓  ▓▓ ▓ │          │
+│        └─────────┘          │
+│ Escaneá el código para      │
+│    sacar tu turno           │
+│ turnos.tudominio.com/...    │
+└─────────────────────────────┘
+```
+
+El QR se genera **en el navegador** ([TarjetaQR.jsx](frontend/src/components/TarjetaQR.jsx)) con import dinámico, así la librería queda en un chunk aparte y no pesa en el resto de la app. Usa corrección de errores **`H`**: el código sigue siendo legible aunque el papel se manche o se tape parcialmente — verificado tapando un 15% y decodificándolo igual.
+
+Al imprimir sale **solo la tarjeta**: los estilos `@media print` ocultan el resto de la pantalla y los botones.
+
 Separarlo en un paso previo logra tres cosas a la vez: el enlace del médico sigue siendo uno solo, el número sobrevive a recargas y a volver atrás porque vive en la URL, y al momento de cargar los datos del turno ya es **inmodificable** (`readOnly disabled`), que es el requisito. El paciente no queda atrapado si se equivocó: el botón **"Cambiar número"** lo devuelve al paso 0, fuera del formulario de reserva.
 
 En el servidor el parámetro `wa` tiene **prioridad** sobre cualquier campo `whatsapp` del cuerpo, así que un formulario no puede pisarlo. Es obligatorio: una reserva por enlace no deja email ni cuenta, así que es el único canal de contacto que queda.

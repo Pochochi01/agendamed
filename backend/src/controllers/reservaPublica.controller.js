@@ -221,6 +221,18 @@ async function miEnlace(req, res) {
     url,
     base,
     activo: Boolean(medico.enlace_activo),
+    /*
+     * Datos para la tarjeta con el codigo QR que el profesional imprime o
+     * comparte. Van en esta misma respuesta y no en otra consulta porque la
+     * tarjeta los necesita junto con el enlace: pedirlos por separado seria
+     * dos llamadas para armar una sola cosa.
+     */
+    profesional: {
+      nombre: medico.nombre,
+      apellido: medico.apellido,
+      especialidad: medico.especialidad,
+      matricula: medico.matricula,
+    },
     // El frontend avisa si el enlace quedo apuntando a localhost, para que el
     // medico no copie algo que nadie puede abrir.
     compartible: esCompartible(base),

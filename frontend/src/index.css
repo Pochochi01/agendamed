@@ -44,6 +44,52 @@
   .tabla tbody { @apply divide-y divide-slate-100; }
 }
 
+/**
+ * Impresion: solo sale lo que este dentro de .area-impresion.
+ *
+ * Se usa `visibility` y no `display:none` a proposito. Ocultar con display
+ * saca los elementos del flujo y rompe el layout de los contenedores padres
+ * de la tarjeta; con visibility siguen ocupando su lugar pero no se ven, y
+ * despues se reposiciona el area a imprimir en el origen de la hoja.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .area-impresion,
+  .area-impresion * {
+    visibility: visible;
+  }
+
+  .area-impresion {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    /* Sin sombras ni bordes de pantalla: en papel solo ensucian. */
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Los botones de accion no tienen sentido impresos. */
+  .no-imprimir {
+    display: none !important;
+  }
+
+  /* Fuerza los colores de fondo (Chrome los omite por defecto al imprimir). */
+  .area-impresion {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  @page {
+    margin: 1.5cm;
+  }
+}
+
 /* Scrollbar discreto para las grillas de la agenda. */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { @apply rounded-full bg-slate-300; }
