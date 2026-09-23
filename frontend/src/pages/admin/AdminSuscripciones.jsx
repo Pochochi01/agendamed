@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { suscripcionesApi } from '../../api/servicios';
 import { Aviso, Cargando, SinDatos } from '../../components/UI';
 import { fechaCorta, moneda, estiloEstadoPago } from '../../utils/formato';
+import { nombreConTratamiento } from '../../utils/tratamiento';
 
 const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -112,7 +113,7 @@ export default function AdminSuscripciones() {
                     <tr key={s.id} className="hover:bg-slate-50">
                       <td>
                         <p className="font-medium text-slate-900">
-                          Dr/a. {s.medico_apellido}, {s.medico_nombre}
+                          {nombreConTratamiento(s)}
                         </p>
                         <p className="text-xs text-slate-500">{s.medico_email}</p>
                       </td>

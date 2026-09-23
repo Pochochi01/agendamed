@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { horariosApi, consultoriosApi, medicosApi } from '../../api/servicios';
 import { Aviso, Cargando, Campo, Modal, SinDatos } from '../../components/UI';
+import SuspensionDias from '../../components/SuspensionDias';
 import { DIAS_SEMANA, hora } from '../../utils/formato';
 
 const FORM_INICIAL = { consultorioId: '', diaSemana: 1, horaInicio: '09:00', horaFin: '13:00' };
@@ -23,6 +24,32 @@ const LIMITES = {
   horas:   { min: 0, max: 4,  etiqueta: 'El campo Horas' },
   minutos: { min: 0, max: 60, etiqueta: 'El campo Minutos' },
 };
+
+/**
+ * Los dos modos de agenda.
+ *
+ *   libre          el paciente elige cualquier horario libre del dia.
+ *   orden_llegada  se ofrece un solo horario por consultorio: el primero
+ *                  disponible. Cuando alguien lo toma, se habilita el
+ *                  siguiente. Si se cancela uno anterior, ese vuelve a ser
+ *                  el primero y se ofrece de nuevo.
+ *
+ * El calculo vive en backend/src/utils/disponibilidad.js: no hay contadores
+ * ni punteros guardados, se recalcula en cada consulta. Por eso cambiar de
+ * modo tiene efecto inmediato y no rompe los turnos ya tomados.
+ */
+const MODOS_AGENDA = [
+  {
+    valor: 'libre',
+    titulo: 'Seleccion libre',
+    detalle: 'El paciente ve todos los horarios disponibles del dia y elige el que le queda comodo.',
+  },
+  {
+    valor: 'orden_llegada',
+    titulo: 'Orden de llegada',
+    detalle: 'Se ofrece un solo horario: el primero libre. Recien cuando se ocupa se habilita el siguiente.',
+  },
+];
 
 /** 90 -> "1 h 30 min" | 20 -> "20 min" | 120 -> "2 h" */
 function formatearDuracion(minutosTotales) {
@@ -53,6 +80,10 @@ export default function MedicoHorarios() {
   const [rechazo, setRechazo] = useState(null);
   const [guardandoDuracion, setGuardandoDuracion] = useState(false);
 
+  // --- Modo de agenda (seccion propia) ---
+  const [modoAgenda, setModoAgenda] = useState('libre');
+  const [guardandoModo, setGuardandoModo] = useState(false);
+
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
@@ -64,6 +95,7 @@ export default function MedicoHorarios() {
       setPorDia(datos.porDia);
       setConsultorios(listaConsultorios);
       setDuracionActual(Number(perfil.medico.duracion_turno_min));
+      setModoAgenda(perfil.medico.modo_agenda || 'libre');
       setError(null);
     } catch (err) {
       setError(err);
@@ -106,6 +138,31 @@ export default function MedicoHorarios() {
 
     setRechazo(null);
     setDuracion({ ...duracion, [campo]: String(valor) });
+  };
+
+  /**
+   * Cambia el modo de agenda. Se guarda al instante, sin boton aparte: es una
+   * eleccion entre dos opciones y el cambio se ve enseguida en el enlace.
+   *
+   * Si la API falla se vuelve al valor anterior, para que lo que se ve en
+   * pantalla no mienta sobre lo que quedo guardado.
+   */
+  const cambiarModoAgenda = async (nuevo) => {
+    if (nuevo === modoAgenda || guardandoModo) return;
+
+    const anterior = modoAgenda;
+    setModoAgenda(nuevo);
+    setGuardandoModo(true);
+    try {
+      const { mensaje } = await medicosApi.actualizarModoAgenda(nuevo);
+      setAviso(mensaje);
+      setError(null);
+    } catch (err) {
+      setModoAgenda(anterior);
+      setError(err);
+    } finally {
+      setGuardandoModo(false);
+    }
   };
 
   const guardarDuracion = async (e) => {
@@ -337,6 +394,46 @@ export default function MedicoHorarios() {
           ya agendados mantienen la duracion con la que fueron tomados.
         </p>
       </section>
+
+      {/* ===================== Modo de agenda ============================= */}
+      <section className="card">
+        <h2 className="text-base font-semibold text-slate-900">Modo de agenda</h2>
+        <p className="text-sm text-slate-600">
+          Define que ve el paciente cuando entra por tu enlace.
+        </p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {MODOS_AGENDA.map((m) => {
+            const elegido = modoAgenda === m.valor;
+            return (
+              <label key={m.valor}
+                className={`cursor-pointer rounded-xl border p-4 transition ${
+                  elegido
+                    ? 'border-marca-500 bg-marca-50 ring-1 ring-marca-200'
+                    : 'border-slate-200 hover:border-slate-300'
+                } ${guardandoModo ? 'opacity-60' : ''}`}>
+                <div className="flex items-start gap-3">
+                  <input type="radio" name="modo-agenda" className="mt-1"
+                    value={m.valor} checked={elegido} disabled={guardandoModo}
+                    onChange={() => cambiarModoAgenda(m.valor)} />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{m.titulo}</p>
+                    <p className="mt-0.5 text-xs text-slate-600">{m.detalle}</p>
+                  </div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+
+        <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
+          El cambio se aplica enseguida. Los turnos ya reservados no se tocan: en orden de
+          llegada, si se cancela un turno anterior, ese horario vuelve a ofrecerse primero.
+        </p>
+      </section>
+
+      {/* ===================== Suspension de dias ========================= */}
+      <SuspensionDias consultorios={consultorios} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[1, 2, 3, 4, 5, 6, 7].map((dia) => {

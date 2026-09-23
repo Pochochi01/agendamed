@@ -27,6 +27,9 @@ export default function ModalTurno({ turno, abierto, onCerrar, onCambio }) {
   const [error, setError] = useState(null);
   const [aviso, setAviso] = useState(null);
   const [guardando, setGuardando] = useState(false);
+  // Cancelacion del turno desde el propio slot.
+  const [confirmarCancelar, setConfirmarCancelar] = useState(false);
+  const [motivoCancelacion, setMotivoCancelacion] = useState('');
   const [editandoEvolucion, setEditandoEvolucion] = useState(null);
   const [textoEdicion, setTextoEdicion] = useState('');
 
@@ -149,6 +152,31 @@ export default function ModalTurno({ turno, abierto, onCerrar, onCambio }) {
     }
   };
 
+  /**
+   * Cancela el turno desde el slot.
+   *
+   * Cancelar no borra nada: el turno queda en estado 'cancelado' con quien lo
+   * cancelo y por que. Lo importante es el efecto lateral: al cancelarse, el
+   * horario sale del indice de ocupacion y vuelve a ofrecerse solo, sin que
+   * haya que liberarlo a mano. En modo "orden de llegada" ese horario pasa a
+   * ser otra vez el primero de la fila.
+   */
+  const cancelarTurno = async () => {
+    setGuardando(true);
+    try {
+      const { mensaje } = await turnosApi.cancelar(turno.turnoId, motivoCancelacion.trim() || null);
+      setAviso(mensaje);
+      setConfirmarCancelar(false);
+      setMotivoCancelacion('');
+      onCambio?.();
+    } catch (err) {
+      setError(err);
+      setConfirmarCancelar(false);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   const cambiarEstadoTurno = async (estado) => {
     setGuardando(true);
     try {
@@ -201,6 +229,33 @@ export default function ModalTurno({ turno, abierto, onCerrar, onCambio }) {
               onClick={() => cambiarEstadoTurno('ausente')}>
               No asistio
             </button>
+            <button type="button" className="btn-peligro btn-sm" disabled={guardando}
+              onClick={() => setConfirmarCancelar(true)}>
+              Cancelar turno
+            </button>
+          </div>
+        )}
+
+        {/* ------------------- Cancelacion desde el slot ----------------- */}
+        {confirmarCancelar && (
+          <div className="mt-3 space-y-3 rounded-lg border border-rose-200 bg-rose-50 p-3">
+            <p className="text-sm text-rose-900">
+              Se cancela el turno y <b>el horario vuelve a quedar disponible</b> al instante.
+              Avisale vos al paciente: el sistema no manda el mensaje.
+            </p>
+            <input type="text" className="input bg-white" maxLength={255}
+              value={motivoCancelacion} placeholder="Motivo (opcional)"
+              onChange={(e) => setMotivoCancelacion(e.target.value)} />
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn-peligro btn-sm" disabled={guardando}
+                onClick={cancelarTurno}>
+                {guardando ? 'Cancelando...' : 'Confirmar cancelacion'}
+              </button>
+              <button type="button" className="btn-secundario btn-sm" disabled={guardando}
+                onClick={() => setConfirmarCancelar(false)}>
+                Volver
+              </button>
+            </div>
           </div>
         )}
       </div>

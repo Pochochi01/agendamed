@@ -10,6 +10,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { turnosApi, pagosApi } from '../../api/servicios';
 import { Aviso, Cargando, Modal, SinDatos } from '../../components/UI';
 import { fechaLarga, hora, hoyIso, horasHasta, moneda, estiloEstadoTurno } from '../../utils/formato';
+import { nombreConTratamiento } from '../../utils/tratamiento';
 
 export default function MisTurnos() {
   const [params] = useSearchParams();
@@ -118,7 +119,7 @@ export default function MisTurnos() {
               {hora(turno.hora_inicio)} - {hora(turno.hora_fin)} hs
             </p>
             <p className="mt-1 text-sm text-slate-700">
-              Dr/a. {turno.medico_apellido}, {turno.medico_nombre}
+              {nombreConTratamiento(turno)}
               <span className="text-slate-500"> - {turno.especialidad}</span>
             </p>
             <p className="text-xs text-slate-500">
@@ -226,7 +227,7 @@ export default function MisTurnos() {
           <div className="space-y-4">
             <p className="text-sm text-slate-600">
               Vas a cancelar el turno del <b className="capitalize">{fechaLarga(aCancelar.fecha)}</b> a
-              las <b>{hora(aCancelar.hora_inicio)}</b> con Dr/a. {aCancelar.medico_apellido}.
+              las <b>{hora(aCancelar.hora_inicio)}</b> con {nombreConTratamiento(aCancelar, { soloApellido: true })}.
             </p>
 
             {Number(aCancelar.monto_pagado) > 0 && (

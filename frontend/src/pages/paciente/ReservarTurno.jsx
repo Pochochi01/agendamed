@@ -29,6 +29,7 @@ import { Aviso, Cargando, Modal, SinDatos } from '../../components/UI';
 import {
   DIAS_CORTOS, diaSemanaDeFecha, fechaLarga, hora, horasHasta, hoyIso, moneda,
 } from '../../utils/formato';
+import { nombreConTratamiento } from '../../utils/tratamiento';
 
 /** Cabecera de un paso, con su numero y estado. */
 function Paso({ numero, titulo, descripcion, completo, activo, children }) {
@@ -229,7 +230,7 @@ export default function ReservarTurno() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-900">
-                Dr/a. {medico.apellido}, {medico.nombre}
+                {nombreConTratamiento(medico)}
               </h1>
               <p className="text-marca-600">{medico.especialidad}</p>
             </div>
@@ -432,7 +433,7 @@ export default function ReservarTurno() {
             <dl className="space-y-2 rounded-lg bg-slate-50 p-4 text-sm">
               <div className="flex justify-between">
                 <dt className="text-slate-500">Profesional</dt>
-                <dd className="font-medium text-slate-900">Dr/a. {medico.apellido}</dd>
+                <dd className="font-medium text-slate-900">{nombreConTratamiento(medico, { soloApellido: true })}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-slate-500">Fecha</dt>

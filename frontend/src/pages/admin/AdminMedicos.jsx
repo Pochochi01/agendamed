@@ -16,10 +16,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { medicosApi, catalogoApi } from '../../api/servicios';
 import { Aviso, Cargando, Campo, Metrica, Modal, SinDatos } from '../../components/UI';
 import { fechaCorta, moneda, estiloEstadoPago } from '../../utils/formato';
+import { GENEROS, nombreConTratamiento } from '../../utils/tratamiento';
 
 const FORM_INICIAL = {
   nombre: '', apellido: '', email: '', telefono: '', password: '',
-  especialidadId: '', matricula: '',
+  especialidadId: '', matricula: '', dni: '', genero: '',
   duracionTurnoMin: 30, precioConsulta: '', porcentajeSena: 30,
 };
 
@@ -83,6 +84,7 @@ export default function AdminMedicos() {
       nombre: m.nombre, apellido: m.apellido, email: m.email, telefono: m.telefono || '',
       password: '', // vacio = no se toca la contrasena
       especialidadId: m.especialidad_id, matricula: m.matricula,
+      dni: m.dni || '', genero: m.genero || '',
       duracionTurnoMin: m.duracion_turno_min,
       precioConsulta: m.precio_consulta,
       porcentajeSena: m.porcentaje_sena,
@@ -103,6 +105,10 @@ export default function AdminMedicos() {
       telefono: form.telefono || null,
       especialidadId: Number(form.especialidadId),
       matricula: form.matricula,
+      // El DNI entra en el enlace publico del profesional (DNI + apellido +
+      // matricula), asi que conviene cargarlo desde el alta.
+      dni: form.dni.trim() || null,
+      genero: form.genero || null,
       duracionTurnoMin: Number(form.duracionTurnoMin),
       precioConsulta: Number(form.precioConsulta || 0),
       porcentajeSena: Number(form.porcentajeSena),
@@ -252,7 +258,7 @@ export default function AdminMedicos() {
                     <tr key={m.id} className="hover:bg-slate-50">
                       <td>
                         <p className="font-medium text-slate-900">
-                          Dr/a. {m.apellido}, {m.nombre}
+                          {nombreConTratamiento(m)}
                         </p>
                         <p className="text-xs text-slate-500">{m.email}</p>
                         {m.telefono && <p className="text-xs text-slate-400">{m.telefono}</p>}
@@ -318,7 +324,7 @@ export default function AdminMedicos() {
 
       {/* ======================= Alta / edicion ========================== */}
       <Modal abierto={formAbierto} onCerrar={() => setFormAbierto(false)} ancho="max-w-2xl"
-        titulo={editando ? `Editar Dr/a. ${editando.apellido}` : 'Nuevo medico'}>
+        titulo={editando ? `Editar ${nombreConTratamiento(editando, { soloApellido: true })}` : 'Nuevo medico'}>
         <form onSubmit={guardar} className="space-y-4">
           {error && (
             <Aviso tipo="error" detalles={error.detalles} onCerrar={() => setError(null)}>
@@ -359,6 +365,19 @@ export default function AdminMedicos() {
               <Campo label="Matricula" requerido>
                 <input name="matricula" value={form.matricula} onChange={alCambiar}
                   className="input" placeholder="MP-12345" required />
+              </Campo>
+              <Campo label="DNI" ayuda="Forma parte del enlace publico de turnos.">
+                <input name="dni" value={form.dni} onChange={alCambiar} inputMode="numeric"
+                  className="input" placeholder="30123456" />
+              </Campo>
+              <Campo label="Genero"
+                ayuda="Define si el sistema lo nombra Dr. o Dra.">
+                <select name="genero" value={form.genero} onChange={alCambiar} className="input">
+                  <option value="">Sin indicar (Dr/a.)</option>
+                  {GENEROS.map((g) => (
+                    <option key={g.valor} value={g.valor}>{g.etiqueta} ({g.titulo})</option>
+                  ))}
+                </select>
               </Campo>
               <Campo label="Precio de la consulta">
                 <input type="number" min="0" step="100" name="precioConsulta"
@@ -409,12 +428,12 @@ export default function AdminMedicos() {
             <p className="text-sm text-slate-600">
               {confirmarEstado.nuevoEstado === 'activo' ? (
                 <>
-                  <b>Dr/a. {confirmarEstado.medico.apellido}</b> volvera a aparecer en la busqueda
+                  <b>{nombreConTratamiento(confirmarEstado.medico, { soloApellido: true })}</b> volvera a aparecer en la busqueda
                   publica y podra recibir turnos y operar su agenda.
                 </>
               ) : (
                 <>
-                  <b>Dr/a. {confirmarEstado.medico.apellido}</b> dejara de aparecer en la busqueda
+                  <b>{nombreConTratamiento(confirmarEstado.medico, { soloApellido: true })}</b> dejara de aparecer en la busqueda
                   publica, no podra iniciar sesion ni recibir turnos nuevos. Los turnos ya
                   reservados se mantienen y deben gestionarse aparte.
                 </>
@@ -448,7 +467,7 @@ export default function AdminMedicos() {
 
             <div>
               <p className="font-semibold text-slate-900">
-                Dr/a. {aEliminar.medico.apellido}, {aEliminar.medico.nombre}
+                {nombreConTratamiento(aEliminar.medico)}
               </p>
               <p className="text-sm text-slate-500">
                 {aEliminar.medico.email} - {aEliminar.medico.especialidad}

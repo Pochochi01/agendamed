@@ -16,6 +16,7 @@ import { authApi, medicosApi } from '../../api/servicios';
 import { useAuth } from '../../context/AuthContext';
 import { Aviso, Cargando, Campo } from '../../components/UI';
 import SelectorEspecialidad from '../../components/SelectorEspecialidad';
+import { GENEROS, tratamiento } from '../../utils/tratamiento';
 
 export default function MedicoPerfil() {
   const { refrescar } = useAuth();
@@ -302,14 +303,19 @@ function BloqueProfesional({ medico, onGuardado }) {
   const [tocado, setTocado] = useState(false);
 
   const {
-    register, handleSubmit, formState: { errors, isDirty, isSubmitting }, reset,
+    register, handleSubmit, watch, formState: { errors, isDirty, isSubmitting }, reset,
   } = useForm({
     defaultValues: {
+      dni: medico.dni || '',
+      genero: medico.genero || '',
       matricula: medico.matricula || '',
       precioConsulta: medico.precio_consulta ?? '',
       porcentajeSena: medico.porcentaje_sena ?? 30,
     },
   });
+
+  // Para mostrar "Dr." / "Dra." mientras se elige, sin esperar a guardar.
+  const generoElegido = watch('genero');
 
   const elegirEspecialidad = (id, especialidad) => {
     setEspecialidadId(id);
@@ -326,6 +332,9 @@ function BloqueProfesional({ medico, onGuardado }) {
     try {
       const { mensaje } = await medicosApi.actualizarMiPerfil({
         especialidadId: Number(especialidadId),
+        dni: valores.dni.trim(),
+        // Vacio = "prefiero no cargarlo": se manda null y se muestra "Dr/a."
+        genero: valores.genero || null,
         matricula: valores.matricula,
         // La duracion del turno se edita en Horarios, que es donde se usa.
         duracionTurnoMin: Number(medico.duracion_turno_min),
@@ -358,6 +367,26 @@ function BloqueProfesional({ medico, onGuardado }) {
           onChange={elegirEspecialidad}
         />
       </Campo>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Campo label="DNI" requerido error={errors.dni?.message}
+          ayuda="Con el DNI, tu apellido y tu matricula se arma tu enlace de turnos.">
+          <input className="input" inputMode="numeric" placeholder="30123456"
+            {...register('dni', {
+              required: 'El DNI es obligatorio',
+              pattern: { value: /^[0-9.]{7,20}$/, message: 'Solo numeros, entre 7 y 20 digitos' },
+            })} />
+        </Campo>
+        <Campo label="Genero" error={errors.genero?.message}
+          ayuda={`Define como te nombra el sistema: ${generoElegido ? tratamiento(generoElegido) : 'Dr/a.'}`}>
+          <select className="input" {...register('genero')}>
+            <option value="">Prefiero no indicarlo</option>
+            {GENEROS.map((g) => (
+              <option key={g.valor} value={g.valor}>{g.etiqueta} ({g.titulo})</option>
+            ))}
+          </select>
+        </Campo>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Campo label="Matricula" requerido error={errors.matricula?.message}>

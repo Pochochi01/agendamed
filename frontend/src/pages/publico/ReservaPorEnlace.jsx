@@ -28,7 +28,9 @@ import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { reservaPublicaApi } from '../../api/servicios';
 import { Aviso, Cargando, Campo, Modal, SinDatos } from '../../components/UI';
-import { DIAS_CORTOS, diaSemanaDeFecha, fechaLarga, hora, moneda } from '../../utils/formato';
+import { DIAS_CORTOS, diaSemanaDeFecha, fechaLarga, hora } from '../../utils/formato';
+// 'moneda' ya no se usa: la pantalla del paciente no muestra importes de consulta.
+import { nombreConTratamiento } from '../../utils/tratamiento';
 
 /** Deja el telefono en digitos, que es como se guarda y como lo usa wa.me. */
 const soloDigitos = (v) => String(v || '').replace(/\D/g, '');
@@ -58,6 +60,7 @@ export default function ReservaPorEnlace() {
   const [error, setError] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [reserva, setReserva] = useState(null);   // resultado exitoso
+  const [avisoCopia, setAvisoCopia] = useState(null);
 
   // El WhatsApp NO es un campo del formulario: viene del parametro de la URL.
   const { register, handleSubmit, formState: { errors } } = useForm({
@@ -88,6 +91,20 @@ export default function ReservaPorEnlace() {
     setWaIngresado(whatsapp);
     setSlotElegido(null);
     setParams({}, { replace: true });
+  };
+
+  /**
+   * Copia el enlace de acceso al turno. Si el navegador no deja (sin HTTPS,
+   * o permiso denegado) se avisa para que lo copie a mano: el texto esta a la
+   * vista en un input, no se pierde nada.
+   */
+  const copiarAcceso = async (texto) => {
+    try {
+      await navigator.clipboard.writeText(texto);
+      setAvisoCopia('Enlace copiado. Guardalo donde no lo pierdas.');
+    } catch {
+      setAvisoCopia('No se pudo copiar solo. Selecciona el enlace y copialo a mano.');
+    }
   };
 
   const cargar = useCallback(async () => {
@@ -211,17 +228,17 @@ export default function ReservaPorEnlace() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-slate-900">
-                  Dr/a. {m.apellido}, {m.nombre}
+                  {nombreConTratamiento(m)}
                 </h1>
                 <p className="text-marca-600">{m.especialidad}</p>
                 <p className="text-xs text-slate-500">Mat. {m.matricula}</p>
               </div>
             </div>
             <div className="text-right">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Consulta</p>
-              <p className="text-xl font-bold text-slate-900">{moneda(m.precioConsulta)}</p>
               <p className="text-xs text-slate-500">
-                {m.mercadopagoConfigurado ? `Sena ${m.porcentajeSena}%` : 'Se abona en el consultorio'}
+                {m.mercadopagoConfigurado
+                  ? `Se reserva con una sena del ${m.porcentajeSena}%`
+                  : 'Se abona en el consultorio'}
               </p>
             </div>
           </div>
@@ -318,6 +335,47 @@ export default function ReservaPorEnlace() {
                 Para confirmar el turno hay que abonar. El consultorio te va a enviar el link de
                 pago al WhatsApp con el que reservaste.
               </Aviso>
+            )}
+
+            {/* ------------------- Acceso al turno ----------------------
+                El codigo de cancelacion es la credencial del paciente: con
+                ese enlace vuelve a ver su turno y lo cancela sin tener
+                cuenta. Se muestra apenas se reserva porque es el unico
+                momento en que se le entrega. */}
+            {reserva.cancelacion && (
+              <div className="rounded-lg border border-marca-200 bg-marca-50 p-4">
+                <p className="text-sm font-semibold text-marca-900">
+                  Guarda este enlace para ver o cancelar tu turno
+                </p>
+                <p className="mt-1 text-xs text-marca-800">
+                  No hace falta usuario ni contrasena: el enlace es tu acceso.
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <input type="text" readOnly value={reserva.cancelacion.url}
+                    className="input flex-1 bg-white font-mono text-xs"
+                    onFocus={(e) => e.target.select()} />
+                  <button type="button" className="btn-secundario btn-sm"
+                    onClick={() => copiarAcceso(reserva.cancelacion.url)}>
+                    Copiar
+                  </button>
+                </div>
+
+                <p className="mt-2 text-xs text-marca-800">
+                  Codigo: <b className="font-mono tracking-wider">{reserva.cancelacion.codigo}</b>
+                </p>
+
+                {avisoCopia && (
+                  <p className="mt-2 text-xs font-medium text-marca-700" role="status">
+                    {avisoCopia}
+                  </p>
+                )}
+
+                <Link to={`/turno/${reserva.cancelacion.codigo}`}
+                  className="mt-3 inline-block text-xs font-medium text-marca-700 underline">
+                  Abrir ahora
+                </Link>
+              </div>
             )}
 
             <p className="text-center text-xs text-slate-500">

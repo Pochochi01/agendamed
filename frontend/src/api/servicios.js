@@ -49,9 +49,27 @@ export const reservaPublicaApi = {
 export const agendaApi = {
   // Devuelve los intervalos del dia, "disponible" u "ocupado".
   dia: (params) => api.get('/agenda/dia', { params }).then((r) => r.data),
-  ausencias: (params) => api.get('/agenda/ausencias', { params }).then((r) => r.data.ausencias),
+  // Devuelve { ausencias, periodos, motivos }: el detalle por dia y consultorio,
+  // los periodos agrupados para la pantalla de suspensiones, y el catalogo de motivos.
+  ausencias: (params) => api.get('/agenda/ausencias', { params }).then((r) => r.data),
   cancelarDia: (datos) => api.post('/agenda/cancelar-dia', datos).then((r) => r.data),
   reactivarDia: (datos) => api.delete('/agenda/cancelar-dia', { data: datos }).then((r) => r.data),
+
+  /** Suspende un dia o un rango completo (vacaciones, congreso, curso...). */
+  suspender: (datos) => api.post('/agenda/suspender', datos).then((r) => r.data),
+  levantarSuspension: (rangoId) =>
+    api.delete(`/agenda/suspender/${rangoId}`).then((r) => r.data),
+};
+
+/* --------- ACCESO DEL PACIENTE A SU TURNO POR CODIGO (publico) ---------- */
+/**
+ * Quien reserva por el enlace no tiene cuenta: el codigo que recibe al
+ * reservar es su unico acceso al turno. No lleva token.
+ */
+export const turnoPublicoApi = {
+  ver: (codigo) => api.get(`/turno/${codigo}`).then((r) => r.data),
+  cancelar: (codigo, motivo) =>
+    api.post(`/turno/${codigo}/cancelar`, { motivo }).then((r) => r.data),
 };
 
 /* ------------------------- TRANSCRIPCION (dictado) ---------------------- */
@@ -138,7 +156,15 @@ export const medicosApi = {
 
   // Credenciales de MercadoPago del profesional (cobro de sus turnos).
   // El access token nunca vuelve del servidor: solo el estado de la conexion.
-  // Enlace de agendamiento directo para compartir con los pacientes.
+  // Modo de agenda: 'libre' u 'orden_llegada'.
+  actualizarModoAgenda: (modoAgenda) =>
+    api.patch('/medicos/mi/modo-agenda', { modoAgenda }).then((r) => r.data),
+
+  /**
+   * Enlace de agendamiento y su codigo QR.
+   * El QR viene de la base: es el mismo que se emitio, y la respuesta informa
+   * con `qrVerificado` si codifica la direccion del enlace vigente.
+   */
   miEnlace: () => api.get('/medicos/mi/enlace').then((r) => r.data),
   regenerarEnlace: () => api.post('/medicos/mi/enlace/regenerar').then((r) => r.data),
   cambiarEstadoEnlace: (activo) => api.patch('/medicos/mi/enlace', { activo }).then((r) => r.data),

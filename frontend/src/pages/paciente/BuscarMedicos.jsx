@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 import { medicosApi, catalogoApi } from '../../api/servicios';
 import { Aviso, Cargando, SinDatos } from '../../components/UI';
 import { moneda } from '../../utils/formato';
+import { nombreConTratamiento } from '../../utils/tratamiento';
 
 export default function BuscarMedicos() {
   const [medicos, setMedicos] = useState([]);
@@ -75,7 +76,7 @@ export default function BuscarMedicos() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="truncate font-semibold text-slate-900">
-                    Dr/a. {m.apellido}, {m.nombre}
+                    {nombreConTratamiento(m)}
                   </h3>
                   <p className="text-sm text-marca-600">{m.especialidad}</p>
                   <p className="text-xs text-slate-500">Mat. {m.matricula}</p>

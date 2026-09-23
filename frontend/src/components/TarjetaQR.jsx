@@ -11,24 +11,31 @@
  * por WhatsApp o subirla a redes.
  *
  * ==========================================================================
- * El QR se genera en el NAVEGADOR
+ * El QR viene de la BASE DE DATOS
  * ==========================================================================
- * Con la libreria `qrcode`, que se carga por import dinamico: solo se
- * descarga al entrar a esta pantalla y no pesa en el resto de la aplicacion.
+ * Se genera y se guarda en el servidor al crear el enlace, y el backend
+ * verifica en cada consulta que codifique la misma direccion del enlace
+ * vigente (`qrVerificado`), regenerandolo solo si dejaron de coincidir.
  *
- * No hace falta que lo genere el servidor: el QR solo codifica una URL que el
- * cliente ya tiene. Hacerlo local evita una llamada mas y funciona aunque la
- * API este lenta.
+ * Mostrar el guardado y no uno nuevo calculado aca importa: el profesional
+ * puede tener carteles impresos, y lo que se ve en pantalla tiene que ser
+ * exactamente el codigo que se emitio.
+ *
+ * Si el servidor todavia no lo tiene —una base sin migrar, por ejemplo— se
+ * genera localmente como respaldo, para que la pantalla no quede rota.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Aviso } from './UI';
+import { nombreConTratamiento } from '../utils/tratamiento';
 
-/** Lado del QR en pixeles. Grande para que imprima nitido. */
+/** Lado del QR en pixeles. Debe coincidir con backend/src/services/qrEnlace.js */
 const TAMANO_QR = 720;
 
-export default function TarjetaQR({ url, profesional, compartible = true }) {
-  const [imagenQR, setImagenQR] = useState(null);
-  const [generando, setGenerando] = useState(true);
+export default function TarjetaQR({
+  url, profesional, compartible = true, qrGuardado = null, qrVerificado = true,
+}) {
+  const [imagenQR, setImagenQR] = useState(qrGuardado);
+  const [generando, setGenerando] = useState(!qrGuardado);
   const [error, setError] = useState(null);
   const [aviso, setAviso] = useState(null);
   const tarjetaRef = useRef(null);
@@ -36,10 +43,18 @@ export default function TarjetaQR({ url, profesional, compartible = true }) {
   useEffect(() => {
     let cancelado = false;
 
+    // El QR del servidor es el que vale: no se regenera nada.
+    if (qrGuardado) {
+      setImagenQR(qrGuardado);
+      setGenerando(false);
+      return undefined;
+    }
+
     (async () => {
       setGenerando(true);
       try {
-        // Import dinamico: la libreria no entra en el bundle principal.
+        // Respaldo local. Import dinamico: la libreria no entra en el bundle
+        // principal.
         const QRCode = (await import('qrcode')).default;
 
         const dataUrl = await QRCode.toDataURL(url, {
@@ -60,7 +75,7 @@ export default function TarjetaQR({ url, profesional, compartible = true }) {
     })();
 
     return () => { cancelado = true; };
-  }, [url]);
+  }, [url, qrGuardado]);
 
   const imprimir = () => window.print();
 
@@ -82,7 +97,7 @@ export default function TarjetaQR({ url, profesional, compartible = true }) {
    * comparte el enlace como texto.
    */
   const compartir = async () => {
-    const texto = `Reserva tu turno con Dr/a. ${profesional.apellido} (${profesional.especialidad})`;
+    const texto = `Reserva tu turno con ${nombreConTratamiento(profesional, { soloApellido: true })} (${profesional.especialidad})`;
 
     try {
       if (imagenQR && navigator.canShare) {
@@ -142,7 +157,7 @@ export default function TarjetaQR({ url, profesional, compartible = true }) {
         </p>
 
         <h3 className="mt-2 text-xl font-bold leading-tight text-slate-900">
-          Dr/a. {profesional.apellido}, {profesional.nombre}
+          {nombreConTratamiento(profesional)}
         </h3>
         <p className="text-sm font-medium text-slate-700">{profesional.especialidad}</p>
         <p className="text-xs text-slate-500">Mat. {profesional.matricula}</p>

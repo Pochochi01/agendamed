@@ -34,6 +34,7 @@ import MedicoPerfil from './pages/medico/MedicoPerfil';
 import MedicoSuscripcion from './pages/medico/MedicoSuscripcion';
 
 import ReservaPorEnlace from './pages/publico/ReservaPorEnlace';
+import TurnoPorCodigo from './pages/publico/TurnoPorCodigo';
 import BuscarMedicos from './pages/paciente/BuscarMedicos';
 import ReservarTurno from './pages/paciente/ReservarTurno';
 import MisTurnos from './pages/paciente/MisTurnos';
@@ -73,6 +74,8 @@ export default function App() {
             paciente entra desde WhatsApp sin tener cuenta.
           */}
           <Route path="/reservar/:hash" element={<ReservaPorEnlace />} />
+          {/* Acceso del paciente a su turno con el codigo de la reserva: ver y cancelar. */}
+          <Route path="/turno/:codigo" element={<TurnoPorCodigo />} />
 
           {/* ------------------------------ Admin ----------------------- */}
           <Route element={<RutaProtegida roles={['admin']} />}>

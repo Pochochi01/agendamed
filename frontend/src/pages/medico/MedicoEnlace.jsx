@@ -132,8 +132,8 @@ export default function MedicoEnlace() {
         </div>
 
         <p className="text-xs text-slate-500">
-          El identificador se arma con tu <b>matricula, apellido y nombre</b>, para que el
-          paciente reconozca de quien es el enlace al recibirlo.
+          El identificador se arma con tu <b>DNI, apellido y matricula</b>. Es unico e
+          irrepetible: una vez generado no cambia, salvo que lo regeneres a mano.
         </p>
 
         <div className="flex flex-wrap gap-2">
@@ -154,6 +154,8 @@ export default function MedicoEnlace() {
           url={enlace.url}
           profesional={enlace.profesional}
           compartible={enlace.compartible !== false}
+          qrGuardado={enlace.qr || null}
+          qrVerificado={enlace.qrVerificado !== false}
         />
       )}
 
