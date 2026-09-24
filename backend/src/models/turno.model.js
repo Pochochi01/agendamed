@@ -4,6 +4,7 @@
  * SELECT ... FOR UPDATE para que dos pacientes simultaneos no tomen el mismo
  * slot; si igual ocurre, el indice unico uq_turno_medico_slot lo rechaza.
  */
+const crypto = require('crypto');
 const { query, queryOne, transaction } = require('../config/db');
 
 const SELECT_BASE = `
@@ -19,6 +20,8 @@ const SELECT_BASE = `
          (up.password_hash IS NULL) AS paciente_es_invitado,
          -- Obra social ya resuelta, para el modal del turno.
          pa.obra_social_id, pa.nro_afiliado,
+         t.codigo_cancelacion,
+         m.genero AS medico_genero, m.modo_agenda,
          os.nombre AS obra_social, os.sigla AS obra_social_sigla,
          um.nombre AS medico_nombre,   um.apellido AS medico_apellido,
          e.nombre  AS especialidad,
@@ -163,10 +166,31 @@ const Turno = {
   },
 
   /**
+   * Codigo con el que un paciente SIN CUENTA puede cancelar su turno.
+   *
+   * Aleatorio y no derivado del id: si fuera correlativo, cualquiera podria
+   * cancelar turnos ajenos probando codigos. 12 caracteres sobre un alfabeto
+   * de 32 dan ~60 bits, imposible de adivinar por fuerza bruta.
+   *
+   * Sin vocales ni caracteres ambiguos (0/O, 1/I/L), porque se dicta y se
+   * copia a mano.
+   */
+  generarCodigoCancelacion() {
+    const alfabeto = '23456789BCDFGHJKMNPQRSTVWXYZ';
+    const bytes = crypto.randomBytes(12);
+    return Array.from(bytes, (b) => alfabeto[b % alfabeto.length]).join('');
+  },
+
+  /** Busca un turno por su codigo de cancelacion. */
+  findByCodigoCancelacion(codigo) {
+    return queryOne(`${SELECT_BASE} WHERE t.codigo_cancelacion = ?`, [String(codigo || '').toUpperCase()]);
+  },
+
+  /**
    * Reserva atomica de un turno.
    * 1) Bloquea las filas del medico en esa fecha (FOR UPDATE).
    * 2) Verifica que ningun turno vigente se superponga.
-   * 3) Inserta.
+   * 3) Inserta, con su codigo de cancelacion.
    *
    * @throws {Error} con code 'SLOT_OCUPADO' si el horario ya esta tomado.
    */
@@ -205,10 +229,11 @@ const Turno = {
       const [res] = await cx.execute(
         `INSERT INTO turnos
            (paciente_id, medico_id, consultorio_id, fecha, hora_inicio, hora_fin,
-            monto_total, motivo_consulta, telefono_whatsapp, canal)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            monto_total, motivo_consulta, telefono_whatsapp, canal, codigo_cancelacion)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [pacienteId, medicoId, consultorioId, fecha, horaInicio, horaFin,
-          montoTotal, motivoConsulta, telefonoWhatsapp, canal]
+          montoTotal, motivoConsulta, telefonoWhatsapp, canal,
+          Turno.generarCodigoCancelacion()]
       );
       return res.insertId;
     });

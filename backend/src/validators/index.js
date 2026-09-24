@@ -67,6 +67,13 @@ const cambiarPassword = [
 const configuracionMedico = [
   body('especialidadId').isInt({ min: 1 }).withMessage('Especialidad invalida'),
   body('matricula').trim().notEmpty().withMessage('La matricula es obligatoria'),
+  // DNI y genero son opcionales: los profesionales cargados antes de que
+  // existieran estos campos pueden guardar sin completarlos.
+  body('dni').optional({ values: 'falsy' })
+    .trim().isLength({ min: 6, max: 20 }).withMessage('DNI invalido')
+    .matches(/^[\d.\s-]+$/).withMessage('El DNI solo puede tener numeros'),
+  body('genero').optional({ values: 'falsy' })
+    .isIn(['masculino', 'femenino']).withMessage('Genero invalido'),
   body('duracionTurnoMin').isInt({ min: 5, max: 240 }).withMessage('La duracion debe estar entre 5 y 240 minutos'),
   body('precioConsulta').isFloat({ min: 0 }).withMessage('Precio invalido'),
   body('porcentajeSena').isInt({ min: 0, max: 100 }).withMessage('La sena debe ser un porcentaje entre 0 y 100'),
@@ -106,6 +113,11 @@ const camposProfesionales = [
   body('telefono').optional({ values: 'falsy' }).trim().isLength({ max: 30 }),
   body('especialidadId').isInt({ min: 1 }).withMessage('Especialidad invalida'),
   body('matricula').trim().notEmpty().withMessage('La matricula es obligatoria').isLength({ max: 40 }),
+  body('dni').optional({ values: 'falsy' })
+    .trim().isLength({ min: 6, max: 20 }).withMessage('DNI invalido')
+    .matches(/^[\d.\s-]+$/).withMessage('El DNI solo puede tener numeros'),
+  body('genero').optional({ values: 'falsy' })
+    .isIn(['masculino', 'femenino']).withMessage('Genero invalido'),
   body('duracionTurnoMin').optional({ values: 'null' })
     .isInt({ min: 5, max: 240 }).withMessage('La duracion debe estar entre 5 y 240 minutos'),
   body('precioConsulta').optional({ values: 'null' })
@@ -257,6 +269,30 @@ const cancelarDia = [
   body('motivo').optional({ values: 'falsy' }).trim().isLength({ max: 255 }),
 ];
 
+/**
+ * Suspension de un dia o de un rango. `hasta` es opcional: si falta se
+ * suspende solo el dia de `desde`.
+ */
+const suspenderRango = [
+  body('desde').isISO8601().withMessage('Indica la fecha de inicio (YYYY-MM-DD)'),
+  body('hasta').optional({ values: 'falsy' })
+    .isISO8601().withMessage('Fecha de fin invalida (YYYY-MM-DD)'),
+  body('tipoMotivo')
+    .isIn(['vacaciones', 'congreso', 'curso', 'personal', 'otro'])
+    .withMessage('Motivo invalido'),
+  body('motivo').optional({ values: 'falsy' }).trim().isLength({ max: 255 }),
+  body('consultorioIds').optional({ values: 'falsy' })
+    .isArray().withMessage('consultorioIds debe ser un arreglo de ids'),
+  body('consultorioIds.*').optional().isInt({ min: 1 }).withMessage('Consultorio invalido'),
+];
+
+/** Modo de agenda: seleccion libre u orden de llegada. */
+const modoAgenda = [
+  body('modoAgenda')
+    .isIn(['libre', 'orden_llegada'])
+    .withMessage('El modo debe ser "libre" u "orden_llegada"'),
+];
+
 /* --------------------- OBRA SOCIAL / HISTORIA CLINICA ------------------ */
 
 const obraSocial = [
@@ -352,6 +388,8 @@ module.exports = {
   configuracionMedico,
   estadoMedico,
   duracionTurno,
+  suspenderRango,
+  modoAgenda,
   crearMedicoAdmin,
   actualizarMedicoAdmin,
   eliminarMedico,

@@ -92,15 +92,15 @@ const PASSWORD_DEMO = 'Agenda2026';
     /* -------------------------------- Medicos --------------------------- */
     console.log('[seed] Medicos...');
     const [rRomero] = await cx.execute(
-      `INSERT INTO medicos (user_id, especialidad_id, matricula, duracion_turno_min, precio_consulta, porcentaje_sena, estado)
-       VALUES (?, 1, 'MP-14523', 30, 18000.00, 30, 'activo')`,
+      `INSERT INTO medicos (user_id, especialidad_id, matricula, dni, genero, duracion_turno_min, precio_consulta, porcentaje_sena, estado)
+       VALUES (?, 1, 'MP-14523', '28456789', 'femenino', 30, 18000.00, 30, 'activo')`,
       [userRomero]
     );
     const medicoRomero = rRomero.insertId;
 
     const [rPaz] = await cx.execute(
-      `INSERT INTO medicos (user_id, especialidad_id, matricula, duracion_turno_min, precio_consulta, porcentaje_sena, estado)
-       VALUES (?, 2, 'MP-20981', 20, 15000.00, 50, 'suspendido')`,
+      `INSERT INTO medicos (user_id, especialidad_id, matricula, dni, genero, duracion_turno_min, precio_consulta, porcentaje_sena, estado)
+       VALUES (?, 2, 'MP-20981', '25120345', 'masculino', 20, 15000.00, 50, 'suspendido')`,
       [userPaz]
     );
     const medicoPaz = rPaz.insertId;

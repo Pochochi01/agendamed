@@ -175,6 +175,8 @@ async function crear(req, res) {
         duracionTurnoMin: req.body.duracionTurnoMin || 30,
         precioConsulta: req.body.precioConsulta || 0,
         porcentajeSena: req.body.porcentajeSena ?? 30,
+        dni: req.body.dni ? String(req.body.dni).replace(/D/g, '') : null,
+        genero: req.body.genero || null,
       },
       cx
     );
@@ -216,12 +218,26 @@ async function actualizar(req, res) {
 
   await User.updateDatosAdmin(medico.user_id, { nombre, apellido, email, telefono });
 
+  // DNI: unico entre profesionales, se valida antes de asignarlo.
+  const dniLimpio = 'dni' in req.body
+    ? String(req.body.dni || '').replace(/\D/g, '') || null
+    : undefined;
+
+  if (dniLimpio) {
+    const ocupado = await Medico.findByDni(dniLimpio);
+    if (ocupado && ocupado.id !== medico.id) {
+      throw ApiError.conflict('Ese DNI ya pertenece a otro profesional');
+    }
+  }
+
   await Medico.updateConfiguracion(medico.id, {
     especialidadId,
     matricula,
     duracionTurnoMin: req.body.duracionTurnoMin ?? medico.duracion_turno_min,
     precioConsulta: req.body.precioConsulta ?? medico.precio_consulta,
     porcentajeSena: req.body.porcentajeSena ?? medico.porcentaje_sena,
+    dni: dniLimpio,
+    genero: 'genero' in req.body ? (req.body.genero || null) : undefined,
   });
 
   let passwordReseteada = false;
@@ -322,12 +338,26 @@ async function actualizarMiPerfil(req, res) {
   const esp = await Catalogo.findEspecialidad(especialidadId);
   if (!esp) throw ApiError.badRequest('La especialidad indicada no existe');
 
+  // DNI y genero solo se tocan si vinieron en el cuerpo. `undefined` le dice
+  // al modelo que deje el valor actual.
+  const dni = 'dni' in req.body ? String(req.body.dni || '').replace(/\D/g, '') || null : undefined;
+  const genero = 'genero' in req.body ? (req.body.genero || null) : undefined;
+
+  if (dni) {
+    const ocupado = await Medico.findByDni(dni);
+    if (ocupado && ocupado.id !== req.medico.id) {
+      throw ApiError.conflict('Ese DNI ya pertenece a otro profesional');
+    }
+  }
+
   const medico = await Medico.updateConfiguracion(req.medico.id, {
     especialidadId,
     matricula,
     duracionTurnoMin,
     precioConsulta,
     porcentajeSena,
+    dni,
+    genero,
   });
 
   return res.json({ ok: true, mensaje: 'Configuracion actualizada', medico });
@@ -447,6 +477,36 @@ async function tokenEsDePrueba(medicoId) {
   return plano ? plano.startsWith('TEST-') : null;
 }
 
+/**
+ * PATCH /api/medicos/mi/modo-agenda  (medico)
+ * Body: { modoAgenda: 'libre' | 'orden_llegada' }
+ *
+ * Define como se le ofrecen los turnos al paciente:
+ *
+ *   libre          -> ve todos los horarios disponibles y elige cualquiera.
+ *   orden_llegada  -> ve solo el PRIMER turno libre de cada consultorio; al
+ *                     ocuparse se habilita el siguiente. Si se cancela uno
+ *                     anterior vuelve a ser el primero libre y se reofrece,
+ *                     y la secuencia sigue desde ahi.
+ *
+ * El modo no guarda estado: el calculo de disponibilidad decide en cada
+ * consulta cual es el primer turno libre a partir de los turnos vigentes.
+ * Por eso cambiar de modo es inmediato y no requiere reorganizar nada.
+ */
+async function actualizarModoAgenda(req, res) {
+  const { modoAgenda } = req.body;
+  const medico = await Medico.setModoAgenda(req.medico.id, modoAgenda);
+
+  return res.json({
+    ok: true,
+    mensaje: modoAgenda === 'orden_llegada'
+      ? 'Agenda por orden de llegada: se ofrece un turno por vez.'
+      : 'Agenda de seleccion libre: el paciente elige cualquier turno disponible.',
+    modoAgenda: medico.modo_agenda,
+    medico,
+  });
+}
+
 /** GET /api/medicos/mi/estadisticas  (medico) */
 async function misEstadisticas(req, res) {
   const estadisticas = await Medico.estadisticas(req.medico.id);
@@ -467,6 +527,7 @@ module.exports = {
   miPerfil,
   actualizarMiPerfil,
   actualizarDuracionTurno,
+  actualizarModoAgenda,
   configurarMercadoPago,
   desconectarMercadoPago,
   estadoMercadoPago,

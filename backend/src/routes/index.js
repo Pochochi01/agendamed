@@ -28,6 +28,8 @@ router.use('/pacientes', require('./paciente.routes'));
  */
 router.use('/historia/transcribir', require('./transcripcion.routes'));
 router.use('/transcripcion', require('./transcripcion.routes'));
+// Acceso del paciente a su turno por codigo, sin sesion (publico).
+router.use('/turno', require('./turnoPublico.routes'));
 router.use('/consultorios', require('./consultorio.routes'));
 router.use('/horarios', require('./horario.routes'));
 router.use('/turnos', require('./turno.routes'));

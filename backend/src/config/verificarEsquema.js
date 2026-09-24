@@ -31,7 +31,58 @@ const COLUMNAS_ESPERADAS = [
     columna: 'hash_publico',
     largoMinimo: LARGO_MAXIMO,
     migracion: '004_hash_publico_255.sql',
-    porque: 'el enlace /reservar/:id se arma con matricula, apellido y nombre',
+    porque: 'el enlace /reservar/:id se arma con DNI, apellido y matricula',
+  },
+  // Sin largoMinimo: solo se comprueba que la columna exista. Son columnas
+  // nuevas cuyo tipo no puede quedarse corto (ENUM o TEXT), pero cuya ausencia
+  // rompe funciones enteras.
+  {
+    tabla: 'medicos',
+    columna: 'dni',
+    migracion: '005_agenda_avanzada.sql',
+    porque: 'es el primer componente del enlace publico del medico',
+  },
+  {
+    tabla: 'medicos',
+    columna: 'genero',
+    migracion: '005_agenda_avanzada.sql',
+    porque: 'define si el sistema lo nombra Dr. o Dra.',
+  },
+  {
+    tabla: 'medicos',
+    columna: 'modo_agenda',
+    migracion: '005_agenda_avanzada.sql',
+    porque: 'elige entre seleccion libre y orden de llegada',
+  },
+  {
+    tabla: 'medicos',
+    columna: 'qr_data_url',
+    migracion: '005_agenda_avanzada.sql',
+    porque: 'guarda el QR del enlace para poder verificarlo en vez de recalcularlo',
+  },
+  {
+    tabla: 'medicos',
+    columna: 'qr_url_codificada',
+    migracion: '005_agenda_avanzada.sql',
+    porque: 'guarda a que direccion lleva ese QR, para contrastarla con el enlace',
+  },
+  {
+    tabla: 'ausencias_medico',
+    columna: 'tipo_motivo',
+    migracion: '005_agenda_avanzada.sql',
+    porque: 'registra si la suspension es por vacaciones, congreso, curso u otro',
+  },
+  {
+    tabla: 'ausencias_medico',
+    columna: 'rango_id',
+    migracion: '005_agenda_avanzada.sql',
+    porque: 'agrupa los dias de una misma suspension para poder levantarla junta',
+  },
+  {
+    tabla: 'turnos',
+    columna: 'codigo_cancelacion',
+    migracion: '005_agenda_avanzada.sql',
+    porque: 'es el acceso del paciente a su turno en /turno/:codigo',
   },
 ];
 
@@ -78,6 +129,9 @@ async function verificarEsquema() {
         });
         continue;
       }
+
+      // Columna declarada sin largo minimo: alcanza con que exista.
+      if (!esperada.largoMinimo) continue;
 
       const largo = Number(filas[0].largo);
       if (largo < esperada.largoMinimo) {

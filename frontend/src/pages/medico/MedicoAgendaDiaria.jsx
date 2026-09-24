@@ -80,7 +80,11 @@ export default function MedicoAgendaDiaria() {
     id: i.key,
     title: i.tipo === 'ocupado'
       ? `${hora(i.horaInicio)} ${i.paciente.apellido}, ${i.paciente.nombre}`
-      : `${hora(i.horaInicio)} Disponible`,
+      // Con orden de llegada, el backend marca cual de los huecos libres es
+      // el que el paciente tiene habilitado ahora mismo. Los demas existen,
+      // pero todavia no se ofrecen: decirlo evita que el medico crea que el
+      // enlace esta roto al ver un solo turno del lado del paciente.
+      : `${hora(i.horaInicio)} ${i.habilitado === false ? 'En fila' : 'Disponible'}`,
     start: aDateLocal(i.fechaHoraInicio),
     end: aDateLocal(i.fechaHoraFin),
     recurso: i,
@@ -94,6 +98,18 @@ export default function MedicoAgendaDiaria() {
     const i = evento.recurso;
 
     if (i.tipo === 'disponible') {
+      // Libre pero todavia no ofrecido (orden de llegada, jornada lejos).
+      if (i.habilitado === false) {
+        return {
+          style: {
+            backgroundColor: '#f8fafc',          // slate-50
+            border: '1px dashed #cbd5e1',
+            color: '#94a3b8',
+            fontSize: '0.75rem',
+            cursor: 'default',
+          },
+        };
+      }
       return {
         style: {
           backgroundColor: '#ecfdf5',            // emerald-50
@@ -240,6 +256,16 @@ export default function MedicoAgendaDiaria() {
             </Aviso>
           )}
 
+          {datos.resumen.modoAgenda === 'orden_llegada'
+            && datos.resumen.habilitados < datos.resumen.disponibles && (
+            <Aviso tipo="info">
+              Estas en <b>orden de llegada</b>: de los {datos.resumen.disponibles} horarios
+              libres, el paciente ve {datos.resumen.habilitados} por ahora. Los demas se van
+              habilitando a medida que se ocupan, y se muestran todos cuando falten menos
+              de 6 horas para la jornada.
+            </Aviso>
+          )}
+
           <div className="grid gap-4 sm:grid-cols-3">
             <Metrica titulo="Turnos ocupados" valor={datos.resumen.ocupados} icono="📘" />
             <Metrica titulo="Disponibles" valor={datos.resumen.disponibles} icono="🟢" color="verde" />
@@ -256,6 +282,12 @@ export default function MedicoAgendaDiaria() {
               <span className="inline-block h-3 w-6 rounded border border-dashed border-emerald-300 bg-emerald-50" />
               Disponible
             </span>
+            {datos?.resumen?.modoAgenda === 'orden_llegada' && (
+              <span className="flex items-center gap-2">
+                <span className="inline-block h-3 w-6 rounded border border-dashed border-slate-300 bg-slate-50" />
+                Libre, pero todavia en fila
+              </span>
+            )}
             <span className="flex items-center gap-2">
               <span className="inline-block h-3 w-6 rounded border border-slate-300 bg-slate-100" />
               Cancelado
@@ -290,11 +322,14 @@ export default function MedicoAgendaDiaria() {
                 style={{ height: 620 }}
                 eventPropGetter={estiloEvento}
                 onSelectEvent={alSeleccionar}
-                tooltipAccessor={(e) => (
-                  e.recurso.tipo === 'ocupado'
-                    ? `${e.recurso.paciente.apellido}, ${e.recurso.paciente.nombre} - ${e.recurso.consultorio}`
-                    : `Disponible - ${e.recurso.consultorio}`
-                )}
+                tooltipAccessor={(e) => {
+                  if (e.recurso.tipo === 'ocupado') {
+                    return `${e.recurso.paciente.apellido}, ${e.recurso.paciente.nombre} - ${e.recurso.consultorio}`;
+                  }
+                  return e.recurso.habilitado === false
+                    ? `Libre, pero todavia no se ofrece (orden de llegada) - ${e.recurso.consultorio}`
+                    : `Disponible - ${e.recurso.consultorio}`;
+                }}
               />
             </div>
           )}

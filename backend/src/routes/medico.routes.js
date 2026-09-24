@@ -41,6 +41,14 @@ router.patch(
   asyncHandler(ctrl.actualizarDuracionTurno)
 );
 
+// Modo de agenda: seleccion libre u orden de llegada.
+router.patch(
+  '/mi/modo-agenda',
+  autenticar, permitir('medico'), resolverTenant, exigirTenantActivo,
+  v.modoAgenda, validate,
+  asyncHandler(ctrl.actualizarModoAgenda)
+);
+
 // Enlace de agendamiento directo que el medico comparte con sus pacientes.
 router.get('/mi/enlace', autenticar, permitir('medico'), resolverTenant, asyncHandler(enlaceCtrl.miEnlace));
 router.post(

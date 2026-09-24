@@ -9,7 +9,8 @@ const { query, queryOne } = require('../config/db');
 const SELECT_BASE = `
   SELECT s.id, s.medico_id, s.mes, s.anio, s.monto, s.estado,
          s.mp_preference_id, s.mp_payment_id, s.fecha_pago, s.created_at,
-         u.nombre AS medico_nombre, u.apellido AS medico_apellido, u.email AS medico_email
+         u.nombre AS medico_nombre, u.apellido AS medico_apellido, u.email AS medico_email,
+         m.genero AS medico_genero
     FROM suscripciones_medicos s
     JOIN medicos m ON m.id = s.medico_id
     JOIN users u   ON u.id = m.user_id`;

@@ -31,8 +31,16 @@ async function agendaDelDia(req, res) {
   // 1. Turnos reservados (incluye los cancelados, para que el medico los vea).
   const turnos = await Turno.listarPorMedico(req.medico.id, { desde: fecha, hasta: fecha });
 
-  // 2. Slots libres. slotsDelDia ya descuenta turnos vigentes y ausencias.
-  const libres = await slotsDelDia(req.medico, fecha);
+  /*
+   * 2. Slots libres. slotsDelDia ya descuenta turnos vigentes y ausencias.
+   *
+   * Se pide SIN aplicar el modo de agenda: el medico tiene que ver todos sus
+   * huecos reales para saber como viene el dia. Con el filtro de orden de
+   * llegada puesto veria un unico hueco verde y el resto de la jornada como
+   * si no existiera. Cada slot trae `habilitado`, que dice cual de esos
+   * huecos puede tomar ahora mismo un paciente.
+   */
+  const libres = await slotsDelDia(req.medico, fecha, { aplicarModoAgenda: false });
 
   // 3. Consultorios del medico + los que estan marcados como ausencia ese dia.
   const consultorios = await Consultorio.listarPorMedico(req.medico.id, { soloActivos: true });
@@ -83,6 +91,12 @@ async function agendaDelDia(req, res) {
       fechaHoraFin: `${s.fecha}T${s.horaFin}`,
       consultorioId: s.consultorioId,
       consultorio: s.consultorio,
+      // Con seleccion libre siempre es true. Con orden de llegada distingue
+      // el turno que el paciente puede tomar de los que estan mas atras en
+      // la fila, que se muestran al medico pero todavia no se ofrecen.
+      habilitado: s.habilitado !== false,
+      jornadaInicio: s.jornadaInicio,
+      jornadaProxima: Boolean(s.jornadaProxima),
     }));
 
   const intervalos = [...ocupados, ...disponibles]
@@ -104,6 +118,10 @@ async function agendaDelDia(req, res) {
       ocupados: ocupados.filter((o) => o.estado !== 'cancelado').length,
       cancelados: ocupados.filter((o) => o.estado === 'cancelado').length,
       disponibles: disponibles.length,
+      // Cuantos de esos huecos puede tomar hoy un paciente. Con orden de
+      // llegada es menor que `disponibles` mientras la jornada este lejos.
+      habilitados: disponibles.filter((d) => d.habilitado).length,
+      modoAgenda: req.medico.modo_agenda || 'libre',
       diaBloqueado: consultorios.length > 0 && consultorios.every((c) => bloqueados.includes(c.id)),
     },
   });
@@ -182,13 +200,96 @@ async function reactivarDia(req, res) {
   });
 }
 
-/** GET /api/agenda/ausencias?desde&hasta  (medico) */
+/**
+ * GET /api/agenda/ausencias?desde&hasta  (medico)
+ * Devuelve los periodos agrupados y tambien el detalle dia por dia.
+ */
 async function listarAusencias(req, res) {
-  const ausencias = await Ausencia.listarPorMedico(req.medico.id, {
+  const rango = {
     desde: req.query.desde || hoyIso(),
     hasta: req.query.hasta || null,
-  });
-  return res.json({ ok: true, ausencias });
+  };
+
+  const [ausencias, periodos] = await Promise.all([
+    Ausencia.listarPorMedico(req.medico.id, rango),
+    Ausencia.listarPeriodos(req.medico.id, rango),
+  ]);
+
+  return res.json({ ok: true, ausencias, periodos, motivos: Ausencia.MOTIVOS });
 }
 
-module.exports = { agendaDelDia, cancelarDia, reactivarDia, listarAusencias };
+/**
+ * POST /api/agenda/suspender  (medico)
+ * Body: { desde, hasta, consultorioIds?, tipoMotivo, motivo? }
+ *
+ * Suspende un dia o un RANGO de dias completo. Hace lo mismo que cancelar un
+ * dia, pero repetido sobre el periodo y agrupado bajo un identificador comun
+ * para poder levantarlo despues de una sola vez.
+ *
+ * Igual que la cancelacion de un dia, hace las dos cosas que la operacion
+ * necesita: cancela los turnos existentes Y bloquea la reserva de nuevos.
+ */
+async function suspenderRango(req, res) {
+  const { desde, tipoMotivo = 'otro', motivo = null } = req.body;
+  const hasta = req.body.hasta || desde;
+
+  if (hasta < desde) {
+    throw ApiError.badRequest('La fecha de fin no puede ser anterior a la de inicio');
+  }
+
+  const consultorios = await Consultorio.listarPorMedico(req.medico.id, { soloActivos: true });
+  if (!consultorios.length) throw ApiError.badRequest('No tenes consultorios activos');
+
+  const idsDelMedico = consultorios.map((c) => c.id);
+
+  // Sin seleccion explicita se suspenden todos los consultorios.
+  let ids = Array.isArray(req.body.consultorioIds) && req.body.consultorioIds.length
+    ? req.body.consultorioIds.map(Number).filter((id) => idsDelMedico.includes(id))
+    : idsDelMedico;
+
+  if (!ids.length) throw ApiError.badRequest('Ninguno de los consultorios indicados te pertenece');
+
+  const resultado = await Ausencia.suspenderRango(req.medico.id, desde, hasta, ids, {
+    tipoMotivo, motivo,
+  });
+
+  const etiqueta = Ausencia.MOTIVOS[tipoMotivo] || 'Suspension';
+  const nombres = consultorios.filter((c) => ids.includes(c.id)).map((c) => c.nombre);
+
+  return res.status(201).json({
+    ok: true,
+    mensaje: resultado.dias === 1
+      ? `${etiqueta}: dia ${desde} suspendido. Se cancelaron ${resultado.turnosCancelados} turno(s).`
+      : `${etiqueta}: ${resultado.dias} dias suspendidos (${desde} al ${hasta}). `
+        + `Se cancelaron ${resultado.turnosCancelados} turno(s).`,
+    suspension: { ...resultado, consultorios: nombres },
+  });
+}
+
+/**
+ * DELETE /api/agenda/suspender/:rangoId  (medico)
+ * Levanta una suspension completa.
+ *
+ * Los turnos que se cancelaron NO se restauran: los pacientes fueron
+ * avisados y pudieron reservar en otro lado, asi que deben volver a pedir.
+ */
+async function levantarSuspension(req, res) {
+  const quitadas = await Ausencia.levantarRango(req.medico.id, req.params.rangoId);
+  if (!quitadas) throw ApiError.notFound('No se encontro esa suspension');
+
+  return res.json({
+    ok: true,
+    mensaje: 'Suspension levantada. Esos dias vuelven a ofrecer turnos. '
+      + 'Los turnos ya cancelados no se restauran.',
+    diasLiberados: quitadas,
+  });
+}
+
+module.exports = {
+  agendaDelDia,
+  cancelarDia,
+  reactivarDia,
+  listarAusencias,
+  suspenderRango,
+  levantarSuspension,
+};

@@ -129,10 +129,21 @@ export default function ReservaPorEnlace() {
 
   /* ------------------------- Derivados por dia -------------------------- */
 
-  const slotsDelDia = useMemo(
-    () => datos?.calendario.find((d) => d.fecha === diaElegido)?.slots || [],
+  const diaActual = useMemo(
+    () => datos?.calendario.find((d) => d.fecha === diaElegido) || null,
     [datos, diaElegido]
   );
+
+  const slotsDelDia = diaActual?.slots || [];
+
+  /*
+   * Con "orden de llegada" el profesional ofrece un turno por vez. Pero
+   * faltando menos de 6 horas para la jornada se liberan todos los libres,
+   * para cubrir los huecos de quienes cancelaron. Cuando eso pasa conviene
+   * decirlo: el paciente que hace un rato vio un solo horario y ahora ve seis
+   * necesita entender que cambio, y que esos huecos se toman rapido.
+   */
+  const jornadaLiberada = Boolean(diaActual?.jornadaLiberada);
 
   /** Consultorios con turnos libres ese dia. */
   const consultoriosDelDia = useMemo(() => {
@@ -402,11 +413,18 @@ export default function ReservaPorEnlace() {
               </button>
             </div>
 
+            {jornadaLiberada && (
+              <Aviso tipo="info">
+                Se liberaron los turnos que quedaron libres para este dia, incluidos los
+                que alguien cancelo. Elegi el que te sirva: suelen tomarse rapido.
+              </Aviso>
+            )}
+
             {/* ------------------------- Paso 1: dia -------------------- */}
             <div className="card">
               <h2 className="mb-3 text-sm font-semibold text-slate-900">1. Elegi el dia</h2>
               <div className="flex gap-2 overflow-x-auto pb-2">
-                {datos.calendario.map(({ fecha, slots }) => {
+                {datos.calendario.map(({ fecha, slots, jornadaLiberada: liberada }) => {
                   const activo = fecha === diaElegido;
                   return (
                     <button key={fecha} type="button" onClick={() => setDiaElegido(fecha)}
@@ -418,6 +436,9 @@ export default function ReservaPorEnlace() {
                       </p>
                       <p className="text-lg font-bold text-slate-900">{fecha.slice(8, 10)}</p>
                       <p className="text-[11px] text-emerald-600">{slots.length} libres</p>
+                      {liberada && (
+                        <p className="text-[10px] font-medium text-amber-600">hoy se liberaron</p>
+                      )}
                     </button>
                   );
                 })}

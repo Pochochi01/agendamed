@@ -480,6 +480,9 @@ npm run build            # Nginx sirve el dist nuevo, no hace falta recargarlo
 | El primer dictado tarda muchísimo | Está descargando el modelo. Poné `TRANSCRIPCION_PRECARGAR=true` |
 | El enlace del médico sale con `localhost` | Falta `PUBLIC_URL` en el `.env`, o Nginx no manda `X-Forwarded-Host`. La pantalla `/medico/enlace` avisa en rojo cuando pasa |
 | `ER_DATA_TOO_LONG` al guardar | Migración sin aplicar: `npm run db:up`. El arranque del servidor ya lo avisa (`[esquema] LA BASE DE DATOS ESTA DESACTUALIZADA`) |
+| El QR lleva a una dirección vieja | Se regenera solo al detectarlo. Si el enlace cambió recién, recargá `/medico/enlace` y **volvé a imprimir la tarjeta**: el QR anterior ya no resuelve |
+| `Duplicate entry ... uq_medicos_dni` | Dos profesionales con el mismo DNI. Es intencional: el DNI es único porque forma parte del enlace público |
+| Los días suspendidos siguen ofreciendo turnos | Mirá `/medico/horarios` → *Suspensiones vigentes*. Si no figura, la suspensión no llegó a guardarse |
 | `ER_ACCESS_DENIED_ERROR` | Usuario o clave de MySQL mal en `.env` |
 | Los pagos no se acreditan | El webhook de MercadoPago tiene que apuntar al dominio público con HTTPS |
 | Certbot falla | El DNS todavía no propagó: `nslookup tudominio.com` |

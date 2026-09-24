@@ -60,6 +60,19 @@ npm run db:seed           # carga datos de prueba
 npm run dev               # http://localhost:4000/api
 ```
 
+> **Si dice que el puerto 4000 está en uso** (`EADDRINUSE`), casi siempre es otra instancia que quedó viva: un `npm run dev` anterior, o una terminal olvidada. El arranque ya no se cae con un stack trace de `net.js`; imprime el comando exacto para liberarlo:
+>
+> ```bash
+> # Windows
+> netstat -ano | findstr :4000     # da el PID
+> taskkill /F /PID <pid>
+>
+> # Linux / Mac
+> lsof -ti:4000 | xargs kill -9
+> ```
+>
+> O levantá esta instancia en otro puerto: `PORT=4001 npm run dev`.
+
 ### Actualizar una base que ya tiene datos
 
 `db:migrate` ejecuta `schema.sql`, que **empieza con `DROP DATABASE`**: sirve para instalar de cero, no para actualizar. Si la base ya está en uso:
@@ -124,17 +137,21 @@ Vite proxea `/api` al backend, así que no hay que tocar CORS en desarrollo.
 
 Ruta **pública, sin sesión**. El médico comparte el enlace (`/medico/enlace`) y el paciente entra, ve los turnos libres de ese profesional y reserva con nombre y DNI.
 
-**El identificador es legible**, armado con matrícula + apellido + nombre:
+**El identificador es legible**, armado con **DNI + apellido + matrícula**:
 
 ```
-/reservar/mp-14523-romero-laura
+/reservar/30987654-romero-mp-14523
 ```
+
+El DNI va primero porque es lo único del trío que es único por sí solo: dos profesionales pueden compartir apellido y, entre jurisdicciones, hasta el número de matrícula. Igual la unicidad **no se deduce, se verifica**: antes de asignarlo se consulta la tabla, y si ya existe se agrega un sufijo numérico. El médico que todavía no cargó su DNI conserva el formato anterior (matrícula + apellido + nombre), así que ningún enlace impreso deja de funcionar.
 
 Antes era un token aleatorio (`elvJc7LnEfGs2EDCuuW5Sw`). Se cambió porque el enlace se comparte por WhatsApp y un token opaco parece spam; así el paciente reconoce de quién es antes de abrirlo. [`enlaceMedico.js`](backend/src/utils/enlaceMedico.js) quita tildes, pasa a minúsculas y colapsa símbolos a guiones, así que `Núñez, José` → `nunez-jose`.
 
 > **Lo que se pierde, dicho explícitamente.** Un identificador legible es **adivinable**: sabiendo matrícula y nombre se puede construir el enlace sin que lo compartan. Eso no filtra nada nuevo —la página muestra nombre, especialidad, precio y turnos libres, exactamente lo que ya devuelve la búsqueda pública de `/api/medicos` a cualquiera—, pero conviene tenerlo claro: el enlace es un atajo, no un secreto.
 >
-> Lo que sí se pierde es invalidar rotando el identificador, porque regenerarlo daría el mismo texto. Se conserva de dos formas: `enlace_activo` lo apaga sin perderlo, y **regenerar agrega un sufijo numérico** (`...-romero-laura-2`), con lo que el anterior deja de resolver.
+> Lo que sí se pierde es invalidar rotando el identificador, porque regenerarlo daría el mismo texto. Se conserva de dos formas: `enlace_activo` lo apaga sin perderlo, y **regenerar agrega un sufijo numérico** (`...-mp-14523-2`), con lo que el anterior deja de resolver.
+
+**Una vez generado, el enlace no se toca.** Cada consulta a `/api/medicos/mi/enlace` devuelve el que ya está guardado; no se recalcula aunque cambien los datos del médico. Eso es deliberado: el enlace vive en carteles impresos, en el estado de WhatsApp y en la agenda de los pacientes, y un cambio silencioso los rompería a todos a la vez. Para cambiarlo hay un botón explícito de **Regenerar**, que avisa que el anterior deja de funcionar.
 
 **La URL funciona en producción sin configurar nada.** El enlace se armaba con `FRONTEND_URL`, y si esa variable quedaba en `http://localhost:5173` el médico copiaba algo inservible — un error silencioso, porque el enlace *se ve* bien. Ahora [`urlPublica.js`](backend/src/utils/urlPublica.js) resuelve la base en este orden:
 
@@ -166,7 +183,7 @@ confirma  nombre · apellido · DNI  +  WhatsApp ya cargado y BLOQUEADO
 ```
 ┌─────────────────────────────┐
 │       TURNOS ONLINE         │
-│   Dr/a. Romero, Laura       │
+│    Dra. Romero, Laura       │
 │      Cardiología            │
 │      Mat. MP-14523          │
 │        ┌─────────┐          │
@@ -179,7 +196,22 @@ confirma  nombre · apellido · DNI  +  WhatsApp ya cargado y BLOQUEADO
 └─────────────────────────────┘
 ```
 
-El QR se genera **en el navegador** ([TarjetaQR.jsx](frontend/src/components/TarjetaQR.jsx)) con import dinámico, así la librería queda en un chunk aparte y no pesa en el resto de la app. Usa corrección de errores **`H`**: el código sigue siendo legible aunque el papel se manche o se tape parcialmente — verificado tapando un 15% y decodificándolo igual.
+**El QR se genera en el servidor y se guarda en la base**, junto al enlace, en `medicos.qr_data_url` (el PNG en base64) y `medicos.qr_url_codificada` (la dirección que ese PNG lleva dentro). Lo hace [`qrEnlace.js`](backend/src/services/qrEnlace.js) con la librería `qrcode`, en el mismo momento en que se crea el enlace.
+
+Guardarlo, en vez de recalcularlo en cada pantalla, es lo que permite **verificar** en lugar de confiar: en cada consulta se compara `qr_url_codificada` con la URL del enlace vigente y el QR se regenera **solo si dejaron de coincidir**. Si coinciden se devuelve el mismo PNG, byte por byte. Un QR recalculado siempre se vería bien aunque apuntara a otro lado; uno guardado y comparado permite detectarlo.
+
+```
+GET /api/medicos/mi/enlace
+  ├─ ¿tiene enlace?  no ─► lo genera (DNI + apellido + matrícula, único)
+  ├─ ¿tiene QR?      no ─► lo genera y lo guarda
+  ├─ ¿qr_url_codificada === url del enlace?
+  │      sí ─► devuelve el guardado    (qrRegenerado: false)
+  │      no ─► regenera y guarda       (qrRegenerado: true, con el motivo)
+```
+
+[TarjetaQR.jsx](frontend/src/components/TarjetaQR.jsx) muestra ese PNG guardado, no uno nuevo: lo que se ve en pantalla es exactamente el código que se emitió y que puede estar colgado en la puerta. Como respaldo, si el servidor no lo tuviera (una base sin migrar), lo genera en el navegador con import dinámico para que la pantalla no quede rota.
+
+Usa corrección de errores **`H`**. Verificado decodificando el PNG guardado con `jsQR`: lleva exactamente a la URL del enlace.
 
 Al imprimir sale **solo la tarjeta**: los estilos `@media print` ocultan el resto de la pantalla y los botones.
 
@@ -198,6 +230,78 @@ Se guarda en dos lugares con sentidos distintos: `pacientes.telefono_whatsapp` e
 **Cancelar el día.** Con más de un consultorio, el modal permite marcar a cuáles no se presentará. La operación hace dos cosas en una transacción: cancela los turnos vigentes **y** registra la ausencia en `ausencias_medico`, para que no entren turnos nuevos — sin esa segunda parte, un paciente podría volver a reservar el día que el médico acaba de cancelar. El cálculo de disponibilidad descarta esos consultorios.
 
 `ausencias_medico` guarda una fila por consultorio en lugar de un `consultorio_id NULL` que signifique "todos": evita la semántica ambigua y habilita el caso de ausentarse solo en algunas sedes.
+
+**Cancelar un turno suelto, desde el propio slot.** El modal del turno tiene un botón *Cancelar turno* con motivo opcional. No borra nada: el turno queda en `cancelado`, con quién lo canceló y por qué. Lo importante es el efecto lateral — ver [Cancelaciones](#cancelaciones-y-pacientes-reincidentes): al cambiar de estado, el turno sale del índice de ocupación y **el horario vuelve a ofrecerse solo**, sin ninguna tarea que lo libere.
+
+### 2c. Modos de agenda — selección libre y orden de llegada
+
+Configurable por el médico en `/medico/horarios`, guardado en `medicos.modo_agenda`.
+
+| Modo | Qué ve el paciente |
+|---|---|
+| `libre` (por defecto) | todos los horarios disponibles del día; elige cualquiera |
+| `orden_llegada` | **un solo horario por consultorio**: el primero libre — salvo dentro de las 6 h previas a la jornada, donde se ofrecen todos |
+
+En orden de llegada, cuando alguien toma el turno ofrecido se habilita el siguiente. Y si se cancela un turno **anterior** al que está en juego, ese horario vuelve a ser el primero libre y se ofrece de nuevo: la secuencia no avanza sin vuelta atrás.
+
+Eso sale gratis porque **no hay puntero ni contador guardado**. `slotsDelDia` ([disponibilidad.js](backend/src/utils/disponibilidad.js)) calcula los libres en cada consulta y se queda con el primero de cada consultorio.
+
+Un puntero persistido —"vamos por el turno 4"— habría que retroceder a mano cada vez que se cancela algo anterior, y quedaría desincronizado ante cualquier error a mitad de camino. Recalcular es más barato y no puede mentir. Cambiar de modo tiene efecto inmediato y no toca los turnos ya reservados.
+
+Se filtra **por consultorio**, no una sola fila para todo el día: si el profesional atiende en dos sedes a la misma hora, ofrecer un único turno global dejaría una de las dos sin poder agendar.
+
+#### La ventana de las 6 horas
+
+Faltando menos de **6 horas** para que empiece la jornada, la fila se levanta y se ofrecen **todos** los turnos libres de esa jornada: los huecos que dejaron las cancelaciones y también la cola, hasta el último turno.
+
+El motivo es práctico. La fila sirve para repartir por orden mientras hay tiempo, pero cerca del horario juega en contra: si dos pacientes cancelaron a último momento, ofrecer un único turno deja esos huecos sin cubrir aunque haya gente buscando, y el consultorio termina con la sala vacía a las 10 y llena a las 11.
+
+> **Ejemplo.** Jornada de 9 a 12, turnos de 20 min, ocupado de 9 a 11. Se cancelan el de 9:20 y el de 10:00.
+>
+> - **A más de 6 h** se ofrece solo `09:20` — el primer hueco libre.
+> - **A menos de 6 h** se ofrecen `09:20`, `10:00`, `11:00`, `11:20` y `11:40`.
+
+Dos detalles de implementación que importan:
+
+- **Se mide por jornada, no por día.** Cada bloque de `horarios` entra en la ventana por su cuenta, así que un día puede tener la mañana liberada y la tarde todavía en fila. Se usa `horasHasta()`, que trabaja con `Date` completos, de modo que el cálculo también es correcto cuando la jornada es mañana temprano y ahora es de noche. El valor es negativo con la jornada ya empezada, y eso **también** cuenta como dentro de la ventana: es justo cuando más interesa cubrir huecos.
+- **No hay ninguna consulta extra de turnos cancelados.** Un turno cancelado sale del índice de ocupación (ver `activo_key`), así que para este cálculo ya es un horario libre más. "Verificar los cancelados" es, literalmente, **no filtrarlos**.
+
+#### Lo que ve el médico
+
+La agenda diaria pide la disponibilidad **sin** aplicar el modo (`slotsDelDia(..., { aplicarModoAgenda: false })`) y muestra todos los huecos reales, con una marca en el que el paciente puede tomar ahora:
+
+| En la agenda del médico | Significado |
+|---|---|
+| verde, *Disponible* | libre y **habilitado**: el paciente lo puede tomar |
+| gris, *En fila* | libre, pero todavía no se ofrece |
+
+Con el filtro puesto el médico habría visto un único hueco verde y el resto del día como si no existiera, que es exactamente lo contrario de lo que necesita para organizarse. **Reservar**, en cambio, siempre pasa por `buscarSlot`, que sí aplica el modo: intentar tomar un turno que está más atrás en la fila devuelve 409, aunque se arme el request a mano.
+
+Del lado del paciente, cuando una jornada entra en la ventana la pantalla lo dice (`jornadaLiberada` en la respuesta pública). Si no, alguien que vio un solo horario hace un rato y ahora ve seis no entiende qué cambió.
+
+### 2d. Suspensión de días y rangos — `/medico/horarios`
+
+Un día suelto o un período entero (vacaciones, congreso, curso, motivos personales, otros). Hace las **dos** cosas que la operación necesita, en una transacción por día: cancela los turnos vigentes **y** bloquea la reserva de nuevos. Sin la segunda parte, un paciente podría volver a reservar el día que el médico acaba de suspender.
+
+Las filas del período comparten un `rango_id`, lo que permite listarlo como una unidad y **levantarlo de una sola vez**. `listarPeriodos` agrupa por `COALESCE(rango_id, CONCAT('dia-', fecha))`, así los días cancelados de a uno desde la agenda diaria —que nacieron sin `rango_id`, antes de que existieran los rangos— aparecen igual en la lista y se pueden levantar; `levantarRango` reconoce ese pseudo-id `dia-YYYY-MM-DD`. Sin eso, esos días habrían quedado bloqueados para siempre desde esta pantalla.
+
+Levantar una suspensión libera los días, pero **no restaura los turnos cancelados**: a esos pacientes se les avisó y pudieron reservar en otro lado. La pantalla lo dice antes de confirmar.
+
+Hay un tope de 366 días por rango: un período más largo casi siempre es un error de tipeo en la fecha de fin.
+
+### 2e. Tratamiento según género — "Dr." / "Dra."
+
+`medicos.genero` (`masculino` | `femenino` | `NULL`), editable por el médico en su perfil y por el admin en el alta y en la modificación. [`tratamiento.js`](backend/src/utils/tratamiento.js) resuelve el título; sin género cargado se usa la forma neutra **"Dr/a."**, que es el valor por defecto y no un error.
+
+El archivo está duplicado en backend y frontend a propósito: son dos bundles distintos y montar un paquete compartido para seis líneas costaría más de lo que ahorra. Las respuestas públicas mandan además `tratamiento` ya resuelto, para que el cliente no tenga que conocer la regla.
+
+### 2f. El paciente cancela su propio turno — `/turno/:codigo`
+
+Al reservar por el enlace, la confirmación devuelve un código de 12 caracteres y la dirección `/turno/<codigo>`. Con eso —sin cuenta ni contraseña— el paciente vuelve a ver su turno y lo cancela.
+
+El código **es** la credencial, así que se lo trata como tal: se genera con `crypto.randomBytes` sobre un alfabeto sin caracteres confundibles (nada de `O`/`0` ni `I`/`1`, porque se dicta y se copia a mano), es `UNIQUE` en la tabla y el endpoint público está limitado a 40 intentos cada 10 minutos.
+
+Solo se puede cancelar **antes** de la hora de inicio; empezado el turno la pantalla indica llamar al consultorio. Al cancelar, el horario vuelve a estar disponible al instante, y en orden de llegada pasa a ser otra vez el primero de la fila.
 
 ### 2b. Perfil del médico — `/medico/perfil`
 
@@ -362,7 +466,7 @@ Content-Type: application/json
 | `pagos` | Seña o total de cada turno, con los ids de MercadoPago |
 | `suscripciones_medicos` | Canon mensual por médico/mes/año |
 | `obras_sociales` | Catálogo de coberturas |
-| `ausencias_medico` | Días que el médico no atiende, por consultorio |
+| `ausencias_medico` | Días que el médico no atiende, por consultorio, con motivo y `rango_id` |
 | `historias_clinicas` | Evoluciones **en texto** (sin audio, por diseño) |
 
 **Decisiones de normalización**
@@ -380,6 +484,23 @@ UNIQUE KEY uq_turno_consultorio_slot (consultorio_id, fecha, hora_inicio, activo
 ```
 
 Un turno cancelado pasa a `activo_key = NULL` y **sale del índice único** (NULL no colisiona en MySQL), con lo que el horario se libera automáticamente sin borrar el registro histórico.
+
+Esa única línea es la que hace que *todas* las cancelaciones —la del médico desde el slot, la del paciente con su código, y las que dispara una suspensión— devuelvan el horario a la disponibilidad sin ninguna tarea que lo libere.
+
+**Migración `005_agenda_avanzada.sql`** (se aplica con `npm run db:up`):
+
+| Tabla | Columna | Para qué |
+|---|---|---|
+| `medicos` | `dni` `VARCHAR(20)` **UNIQUE** | primer componente del enlace público |
+| `medicos` | `genero` `ENUM('masculino','femenino')` | resuelve "Dr." / "Dra." |
+| `medicos` | `modo_agenda` `ENUM('libre','orden_llegada')` | qué ve el paciente al entrar |
+| `medicos` | `qr_data_url` `MEDIUMTEXT` | el PNG del QR, guardado |
+| `medicos` | `qr_url_codificada` `VARCHAR(255)` | la dirección que ese PNG lleva dentro |
+| `ausencias_medico` | `tipo_motivo` `ENUM(...)` | vacaciones · congreso · curso · personal · otro |
+| `ausencias_medico` | `rango_id` `CHAR(12)` | agrupa los días de una misma suspensión |
+| `turnos` | `codigo_cancelacion` `CHAR(12)` **UNIQUE** | acceso del paciente a su turno |
+
+`qr_url_codificada` existe **solo** para poder verificar: sin ella habría que decodificar el PNG en cada consulta, o confiar en que apunta donde debe.
 
 ---
 
@@ -519,6 +640,10 @@ Suspender a un médico lo saca de la búsqueda pública y le bloquea el login. `
 | DELETE | `/:id` | admin — **eliminación definitiva** (exige confirmación) |
 | GET·PUT | `/mi/perfil` | médico — configuración de agenda y tarifas |
 | PATCH | `/mi/duracion-turno` | médico — duración del slot, en horas + minutos |
+| PATCH | `/mi/modo-agenda` | médico — `libre` u `orden_llegada` |
+| GET | `/mi/enlace` | médico — enlace + QR guardados; verifica que el QR lleve al enlace |
+| POST | `/mi/enlace/regenerar` | médico — nuevo identificador; el anterior deja de resolver |
+| PATCH | `/mi/enlace` | médico — activar / desactivar el enlace sin perderlo |
 | GET·PUT·DELETE | `/mi/mercadopago` | médico — conectar / desconectar su cuenta de cobro |
 
 ### `/api/consultorios` · `/api/horarios`
@@ -534,6 +659,22 @@ CRUD completo del tenant (`GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:i
 | PATCH | `/:id/estado` | médico — confirmado / completado / ausente |
 | PATCH | `/:id/cancelar` | paciente, médico o admin — sin límite de antelación |
 | GET | `/pacientes/:id/cancelaciones` | médico — registro de cancelaciones de un paciente |
+
+### `/api/agenda`
+| Método | Ruta | Rol |
+|---|---|---|
+| GET | `/dia` | médico — jornada con ocupados y libres |
+| GET | `/ausencias` | médico — `{ ausencias, periodos, motivos }` |
+| POST | `/cancelar-dia` | médico — cancela la jornada de un día |
+| DELETE | `/cancelar-dia` | médico — reactiva ese día |
+| POST | `/suspender` | médico — suspende un día o un **rango** con motivo |
+| DELETE | `/suspender/:rangoId` | médico — levanta el período completo |
+
+### `/api/turno` (público, sin sesión)
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET 🌐 | `/:codigo` | El paciente ve su turno con el código de la reserva |
+| POST 🌐 | `/:codigo/cancelar` | Lo cancela, si todavía no empezó |
 
 ### `/api/pagos` · `/api/suscripciones`
 | Método | Ruta | Descripción |
@@ -613,9 +754,9 @@ ngrok http 4000
 
 ## Verificaciones realizadas
 
-- `node --check` sobre los 26 archivos JS del backend — sin errores de sintaxis.
-- `npm run build` del frontend — 108 módulos, build correcto.
-- Carga de la app Express — **74 endpoints** montados.
+- `node --check` sobre los 60 archivos JS del backend — sin errores de sintaxis.
+- `npm run build` del frontend — 1592 módulos, build correcto.
+- Carga de la app Express — **84 endpoints** montados.
 - 20 aserciones sobre la lógica de tiempo y solapamiento (bloques contiguos, rangos contenidos, cruce de mes/año, año bisiesto, generación de slots) — todas OK.
 - 37 aserciones sobre la duración del turno (control de ingreso por campo, conversión horas+minutos, límites de 5 min / 4 h, formato, impacto en la cantidad de slots) — todas OK.
 - 20 aserciones sobre el flujo de reserva (agrupación por consultorio, caso de uno solo vs. varios, filtrado de horarios por consultorio, consultorio sin turnos libres, descarte de horarios pasados, rechazo de consultorio distinto) — todas OK.
@@ -623,5 +764,13 @@ ngrok http 4000
 - 22 aserciones sobre cancelaciones: umbral de marcado, cancelación disponible sin límite de antelación, quién suma al contador, y **contraste WCAG del fondo rojo translúcido** calculado sobre los colores reales — todas OK.
 - 22 aserciones sobre el CRUD del admin: orden de borrado verificado contra las FK declaradas en el esquema, uso de transacción, que no se toquen datos ajenos al tenant, la puerta de confirmación por email y el orden de las rutas frente a `/:id` — todas OK.
 - 44 aserciones sobre el módulo de agendamiento: hash no enumerable (1000 sin colisión, rechazo de ids y de inyección), normalización del WhatsApp, **la restricción del audio verificada sobre el código y el esquema reales** (sin `multer`, sin `multipart`, sin columna de audio, sin `MediaRecorder`/`Blob`/`FormData`), bloqueo de nuevas reservas al cancelar el día, aislamiento de los datos clínicos y cuentas invitadas — todas OK.
+
+- **18 aserciones sobre la ventana de 6 horas del modo orden de llegada**, con el reloj congelado y los modelos reemplazados por datos fijos (no toca la base), incluido el ejemplo del pedido: jornada de 9 a 12, ocupado de 9 a 11, cancelados 9:20 y 10:00. Cubre el borde exacto de las 6 h (a 6 h 1 min sigue la fila, a 5 h 59 min se libera), la jornada ya empezada, el caso de dos jornadas el mismo día con solo una dentro de la ventana, que selección libre no cambie de comportamiento, y que la vista del médico muestre los 5 huecos mientras el paciente ve 1 — todas OK. Verificado además contra la API real: reservar un turno que está más atrás en la fila devuelve 409.
+- **33 aserciones de punta a punta contra la API y la base reales**, sobre las cinco partes de la tanda anterior:
+  - **Enlace y QR:** el identificador sale de DNI + apellido + matrícula; el enlace ya generado no cambia entre consultas; el QR viene guardado, codifica exactamente la URL del enlace y **no se regenera** cuando ya coincide (`qrRegenerado: false`). Además se decodificó el PNG guardado con `jsQR`: lleva a la URL del enlace, carácter por carácter.
+  - **Turnos:** en `libre` se ofrecen los 9 horarios del día; en `orden_llegada`, uno solo por consultorio. Al reservar, ese horario deja de ofrecerse y se habilita el siguiente. El paciente ve su turno con el código, lo cancela, **el horario vuelve a estar disponible** y un segundo intento de cancelar devuelve 409. El médico cancela desde el slot y el horario también se libera.
+  - **Género:** DNI y género se guardan y persisten; las respuestas públicas y el turno del paciente devuelven `"Dra."`.
+  - **Suspensiones:** un rango de tres días deja de ofrecer turnos, se lista agrupado con su motivo, se levanta de una vez y los días vuelven a aparecer. Un día cancelado de a uno (sin `rango_id`) se lista como `dia-<fecha>` y también se puede levantar.
+  - **Pantalla del paciente:** la respuesta pública **ya no incluye `precioConsulta`**.
 
 Pendiente de ejecutar contra una base real: `npm run db:migrate && npm run db:seed` (requiere la contraseña de MySQL en el `.env`).

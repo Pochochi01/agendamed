@@ -32,7 +32,9 @@ const LIMITES = {
  *   orden_llegada  se ofrece un solo horario por consultorio: el primero
  *                  disponible. Cuando alguien lo toma, se habilita el
  *                  siguiente. Si se cancela uno anterior, ese vuelve a ser
- *                  el primero y se ofrece de nuevo.
+ *                  el primero y se ofrece de nuevo. Faltando menos de 6
+ *                  horas para que empiece la jornada, la fila se levanta y
+ *                  se ofrecen todos sus turnos libres.
  *
  * El calculo vive en backend/src/utils/disponibilidad.js: no hay contadores
  * ni punteros guardados, se recalcula en cada consulta. Por eso cambiar de
@@ -48,6 +50,8 @@ const MODOS_AGENDA = [
     valor: 'orden_llegada',
     titulo: 'Orden de llegada',
     detalle: 'Se ofrece un solo horario: el primero libre. Recien cuando se ocupa se habilita el siguiente.',
+    nota: 'Faltando menos de 6 h para la jornada se muestran todos los turnos libres, '
+      + 'para que los huecos de las cancelaciones no queden sin cubrir.',
   },
 ];
 
@@ -419,6 +423,11 @@ export default function MedicoHorarios() {
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{m.titulo}</p>
                     <p className="mt-0.5 text-xs text-slate-600">{m.detalle}</p>
+                    {m.nota && (
+                      <p className="mt-1.5 border-t border-slate-200 pt-1.5 text-xs text-slate-500">
+                        {m.nota}
+                      </p>
+                    )}
                   </div>
                 </div>
               </label>
@@ -429,6 +438,8 @@ export default function MedicoHorarios() {
         <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
           El cambio se aplica enseguida. Los turnos ya reservados no se tocan: en orden de
           llegada, si se cancela un turno anterior, ese horario vuelve a ofrecerse primero.
+          En tu agenda diaria vas a seguir viendo <b>todos</b> los huecos libres, con una
+          marca en el que el paciente puede tomar ahora.
         </p>
       </section>
 

@@ -29,4 +29,16 @@ router.delete(
   asyncHandler(ctrl.reactivarDia)
 );
 
+// Suspension de un dia o de un RANGO (vacaciones, congreso, curso...).
+router.post(
+  '/suspender',
+  exigirTenantActivo, v.suspenderRango, validate,
+  asyncHandler(ctrl.suspenderRango)
+);
+router.delete(
+  '/suspender/:rangoId',
+  exigirTenantActivo,
+  asyncHandler(ctrl.levantarSuspension)
+);
+
 module.exports = router;

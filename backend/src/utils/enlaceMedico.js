@@ -3,13 +3,22 @@
  * Identificador publico del medico para el enlace /reservar/:identificador
  *
  * ==========================================================================
- * Formato: matricula + apellido + nombre
+ * Formato: DNI + apellido + matricula
  * ==========================================================================
- *     MP-14523 · Romero · Laura   ->   mp-14523-romero-laura
+ *     28456789 · Romero · MP-14523   ->   28456789-romero-mp-14523
  *
- * Antes era un token aleatorio de 128 bits. El cambio lo pidio el consultorio:
- * un enlace legible se reconoce al pegarlo en WhatsApp y da confianza al
- * paciente, en vez de un "elvJc7LnEfGs2EDCuuW5Sw" que parece spam.
+ * El DNI y la matricula son UNICOS por profesional, asi que la combinacion no
+ * puede repetirse. Aun asi el alta verifica contra la base antes de asignar,
+ * porque la unicidad tiene que garantizarla quien escribe, no la suerte.
+ *
+ * Historia del formato:
+ *   1. token aleatorio de 128 bits  -> ilegible, parecia spam en WhatsApp
+ *   2. matricula + apellido + nombre
+ *   3. DNI + apellido + matricula   (actual)
+ *
+ * Los enlaces YA generados no se tocan: `asegurarHashPublico` solo crea uno
+ * cuando falta. Un profesional que ya venia operando conserva el suyo, porque
+ * puede haberlo impreso o compartido.
  *
  * ==========================================================================
  * Que se pierde y por que es aceptable
@@ -36,13 +45,16 @@
  * El slug se arma con tres columnas de la base, asi que su largo maximo no es
  * arbitrario: se deduce de ellas.
  *
- *     medicos.matricula   VARCHAR(40)
+ *     medicos.dni         VARCHAR(20)
  *     users.apellido      VARCHAR(80)
- *     users.nombre        VARCHAR(80)
+ *     medicos.matricula   VARCHAR(40)
  *     separadores                   2
  *     sufijo de regeneracion   hasta 6   ("-id123")
  *     -------------------------------------------
- *     PEOR CASO                   208 caracteres
+ *     PEOR CASO                   148 caracteres
+ *
+ * (El formato anterior usaba el nombre en lugar del DNI y llegaba a 208; la
+ *  columna se dimensiono para ese caso y sigue sobrando.)
  *
  * La columna `medicos.hash_publico` es VARCHAR(255): entra el peor caso con
  * margen, asi que el recorte de abajo no llega a activarse nunca en la
@@ -81,19 +93,28 @@ function aFragmento(texto) {
 }
 
 /**
- * Construye el identificador publico del medico.
+ * Construye el identificador publico del medico: DNI + apellido + matricula.
+ *
+ * Si falta el DNI —los profesionales cargados antes de que el campo existiera
+ * no lo tienen— se arma con lo que haya. No se inventa nada ni se falla: esos
+ * casos ya tienen su enlace generado y este generador no los toca.
  *
  * @param {Object} datos
- * @param {string} datos.matricula
+ * @param {string} [datos.dni]
  * @param {string} datos.apellido
- * @param {string} datos.nombre
- * @param {number} [datos.sufijo]  se agrega al regenerar, para invalidar el anterior
- * @returns {string} por ejemplo "mp-14523-romero-laura"
+ * @param {string} datos.matricula
+ * @param {string} [datos.nombre]  solo se usa si no hay DNI, como desempate
+ * @param {number|string} [datos.sufijo] se agrega al regenerar, para
+ *   invalidar el enlace anterior
+ * @returns {string} por ejemplo "28456789-romero-mp-14523"
  */
-function generarIdentificador({ matricula, apellido, nombre, sufijo = null }) {
-  let base = [aFragmento(matricula), aFragmento(apellido), aFragmento(nombre)]
-    .filter(Boolean)
-    .join('-');
+function generarIdentificador({ dni, apellido, matricula, nombre, sufijo = null }) {
+  const partes = [aFragmento(dni), aFragmento(apellido), aFragmento(matricula)];
+
+  // Sin DNI se cae al nombre para que el identificador siga siendo distintivo.
+  if (!aFragmento(dni) && nombre) partes.push(aFragmento(nombre));
+
+  let base = partes.filter(Boolean).join('-');
 
   const fragmentoSufijo = sufijo ? `-${aFragmento(String(sufijo))}` : '';
 

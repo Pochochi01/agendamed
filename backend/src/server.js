@@ -34,6 +34,30 @@ const mp = require('./config/mercadopago');
     console.log(`[api] AgendaMed escuchando en http://localhost:${port}/api (${nodeEnv})`);
   });
 
+  /*
+   * El servidor HTTP emite 'error' y, sin este manejador, Node lo convierte en
+   * una excepcion no capturada: veinte lineas de stack trace de net.js que no
+   * dicen que hacer. El caso habitual es EADDRINUSE, que casi nunca es un bug
+   * sino otra instancia todavia corriendo (un nodemon anterior, una terminal
+   * olvidada). Se traduce a un mensaje con el comando exacto para resolverlo.
+   */
+  servidor.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`\n[api] El puerto ${port} ya esta en uso.`);
+      console.error('[api] Hay otra instancia de AgendaMed corriendo. Opciones:');
+      console.error('[api]   1) Cerrala, o liberá el puerto:');
+      console.error(`[api]      Windows: netstat -ano | findstr :${port}   y luego  taskkill /F /PID <pid>`);
+      console.error(`[api]      Linux/Mac: lsof -ti:${port} | xargs kill -9`);
+      console.error('[api]   2) O levantá esta en otro puerto:  PORT=4001 npm run dev\n');
+    } else if (error.code === 'EACCES') {
+      console.error(`\n[api] Sin permisos para usar el puerto ${port}.`);
+      console.error('[api] Por debajo del 1024 hace falta root. Usa uno mas alto (PORT=4000).\n');
+    } else {
+      console.error('[api] No se pudo levantar el servidor:', error.message);
+    }
+    process.exit(1);
+  });
+
   /** Cierre ordenado: deja de aceptar conexiones y libera el pool. */
   const apagar = async (senal) => {
     console.log(`\n[api] ${senal} recibido, cerrando...`);

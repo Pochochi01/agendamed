@@ -5,6 +5,7 @@
  */
 const { query, queryOne, transaction } = require('../config/db');
 const { generarIdentificador, LARGO_MAXIMO } = require('../utils/enlaceMedico');
+const { generarQR, evaluarQR } = require('../services/qrEnlace');
 
 const Medico = {
   findById(id) {
@@ -13,6 +14,11 @@ const Medico = {
 
   findByUserId(userId) {
     return queryOne('SELECT * FROM v_medicos WHERE user_id = ?', [userId]);
+  },
+
+  /** El DNI es UNICO entre profesionales: sirve para validar antes de guardar. */
+  findByDni(dni) {
+    return queryOne('SELECT * FROM v_medicos WHERE dni = ?', [dni]);
   },
 
   /**
@@ -46,25 +52,46 @@ const Medico = {
    * Crea el perfil de medico. Se ejecuta dentro de la transaccion de registro
    * junto al INSERT de `users`.
    */
-  async create({ userId, especialidadId, matricula, duracionTurnoMin = 30, precioConsulta = 0, porcentajeSena = 30 }, cx) {
+  async create({ userId, especialidadId, matricula, duracionTurnoMin = 30, precioConsulta = 0, porcentajeSena = 30, dni = null, genero = null }, cx) {
     const sql = `INSERT INTO medicos
-                   (user_id, especialidad_id, matricula, duracion_turno_min, precio_consulta, porcentaje_sena)
-                 VALUES (?, ?, ?, ?, ?, ?)`;
-    const params = [userId, especialidadId, matricula, duracionTurnoMin, precioConsulta, porcentajeSena];
+                   (user_id, especialidad_id, matricula, duracion_turno_min,
+                    precio_consulta, porcentaje_sena, dni, genero)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+    const params = [userId, especialidadId, matricula, duracionTurnoMin,
+      precioConsulta, porcentajeSena, dni || null, genero || null];
 
     const ejecutor = cx || require('../config/db').pool;
     const [res] = await ejecutor.execute(sql, params);
     return res.insertId;
   },
 
-  /** Configuracion de agenda y tarifas que edita el propio medico. */
-  async updateConfiguracion(id, { especialidadId, matricula, duracionTurnoMin, precioConsulta, porcentajeSena }) {
+  /**
+   * Configuracion profesional que edita el propio medico (o el admin).
+   *
+   * `dni` y `genero` se pasan como `undefined` cuando no se quieren tocar: en
+   * ese caso la columna se asigna a si misma y queda igual.
+   *
+   * Distinguir undefined de null importa porque null SI es un cambio valido
+   * (vaciar el campo), y con un simple `?? null` no se podria expresar
+   * "dejalo como esta".
+   */
+  async updateConfiguracion(id, {
+    especialidadId, matricula, duracionTurnoMin, precioConsulta, porcentajeSena,
+    dni = undefined, genero = undefined,
+  }) {
     await query(
       `UPDATE medicos
           SET especialidad_id = ?, matricula = ?, duracion_turno_min = ?,
-              precio_consulta = ?, porcentaje_sena = ?
+              precio_consulta = ?, porcentaje_sena = ?,
+              dni    = ${dni === undefined ? 'dni' : '?'},
+              genero = ${genero === undefined ? 'genero' : '?'}
         WHERE id = ?`,
-      [especialidadId, matricula, duracionTurnoMin, precioConsulta, porcentajeSena, id]
+      [
+        especialidadId, matricula, duracionTurnoMin, precioConsulta, porcentajeSena,
+        ...(dni === undefined ? [] : [dni || null]),
+        ...(genero === undefined ? [] : [genero || null]),
+        id,
+      ]
     );
     return Medico.findById(id);
   },
@@ -121,7 +148,12 @@ const Medico = {
    * @param {number} [desde] primer sufijo a probar (lo usa regenerar)
    */
   async construirIdentificadorUnico(medico, desde = 0) {
-    const base = { matricula: medico.matricula, apellido: medico.apellido, nombre: medico.nombre };
+    const base = {
+      dni: medico.dni,
+      apellido: medico.apellido,
+      matricula: medico.matricula,
+      nombre: medico.nombre,   // respaldo si el profesional no tiene DNI cargado
+    };
 
     for (let sufijo = desde; sufijo < desde + 50; sufijo += 1) {
       const candidato = generarIdentificador({ ...base, sufijo: sufijo || null });
@@ -171,13 +203,74 @@ const Medico = {
     const siguiente = coincidencia ? Number(coincidencia[1]) + 1 : 2;
 
     const identificador = await Medico.construirIdentificadorUnico(medico, siguiente);
-    await query('UPDATE medicos SET hash_publico = ? WHERE id = ?', [identificador, id]);
+    // El QR guardado apuntaba al enlace anterior: se borra para que se
+    // regenere con el nuevo. Si no, el cartel impreso y el enlace quedarian
+    // apuntando a lados distintos.
+    await query(
+      'UPDATE medicos SET hash_publico = ?, qr_data_url = NULL, qr_url_codificada = NULL WHERE id = ?',
+      [identificador, id]
+    );
     return Medico.findById(id);
   },
 
   /** Activa o desactiva el enlace publico sin perder el hash. */
   async setEnlaceActivo(id, activo) {
     await query('UPDATE medicos SET enlace_activo = ? WHERE id = ?', [activo ? 1 : 0, id]);
+    return Medico.findById(id);
+  },
+
+  /**
+   * Asegura que el medico tenga enlace Y su codigo QR guardados, y que el QR
+   * apunte exactamente a la direccion del enlace.
+   *
+   * Reglas:
+   *   - si YA tiene enlace, se conserva sin cambios (puede estar impreso o
+   *     compartido); solo se genera si falta;
+   *   - el QR se (re)genera unicamente cuando no existe o cuando dejo de
+   *     coincidir con el enlace vigente.
+   *
+   * @param {number} id
+   * @param {string} urlBase  origen publico, por ejemplo "https://midominio.com"
+   * @returns {Promise<{medico:Object, url:string, qrRegenerado:boolean, motivoQR:string}>}
+   */
+  async asegurarEnlaceConQR(id, urlBase) {
+    const identificador = await Medico.asegurarHashPublico(id);
+    if (!identificador) return null;
+
+    const medico = await Medico.findById(id);
+    const url = `${urlBase}/reservar/${identificador}`;
+
+    const { hayQueGenerar, motivo } = evaluarQR(medico, url);
+
+    if (!hayQueGenerar) {
+      return { medico, url, qrRegenerado: false, motivoQR: motivo };
+    }
+
+    const dataUrl = await generarQR(url);
+    await query(
+      'UPDATE medicos SET qr_data_url = ?, qr_url_codificada = ? WHERE id = ?',
+      [dataUrl, url, id]
+    );
+
+    return {
+      medico: await Medico.findById(id),
+      url,
+      qrRegenerado: true,
+      motivoQR: motivo,
+    };
+  },
+
+  /** Borra el QR guardado: se vuelve a generar en el proximo acceso. */
+  async invalidarQR(id) {
+    await query(
+      'UPDATE medicos SET qr_data_url = NULL, qr_url_codificada = NULL WHERE id = ?',
+      [id]
+    );
+  },
+
+  /** Modo de agenda: 'libre' u 'orden_llegada'. */
+  async setModoAgenda(id, modo) {
+    await query('UPDATE medicos SET modo_agenda = ? WHERE id = ?', [modo, id]);
     return Medico.findById(id);
   },
 

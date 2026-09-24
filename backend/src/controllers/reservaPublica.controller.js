@@ -32,8 +32,9 @@ const Turno = require('../models/turno.model');
 const ApiError = require('../utils/ApiError');
 const { esIdentificadorValido } = require('../utils/enlaceMedico');
 const { baseUrlPublica, esCompartible } = require('../utils/urlPublica');
+const { tratamiento } = require('../utils/tratamiento');
 const { slotsDelRango, buscarSlot } = require('../utils/disponibilidad');
-const { hoyIso } = require('../utils/tiempo');
+const { hoyIso, horasHasta } = require('../utils/tiempo');
 
 /** Deja el telefono en digitos (admite el + inicial). */
 function normalizarWhatsapp(valor) {
@@ -75,18 +76,44 @@ async function disponibilidadPorHash(req, res) {
 
   return res.json({
     ok: true,
+    /*
+     * Datos del profesional para la pagina publica.
+     *
+     * NO se envia el precio de la consulta: el consultorio pidio sacarlo de
+     * esta vista. Al no salir del servidor, tampoco queda expuesto en la
+     * respuesta para quien mire la red.
+     *
+     * `porcentajeSena` y `mercadopagoConfigurado` si viajan, pero no se
+     * muestran: los necesita el paso de pago que va DESPUES de reservar.
+     */
     medico: {
       nombre: medico.nombre,
       apellido: medico.apellido,
+      genero: medico.genero,
+      tratamiento: tratamiento(medico.genero),
       especialidad: medico.especialidad,
       matricula: medico.matricula,
       duracionTurnoMin: medico.duracion_turno_min,
-      precioConsulta: medico.precio_consulta,
+      modoAgenda: medico.modo_agenda,
       porcentajeSena: medico.porcentaje_sena,
       mercadopagoConfigurado: Boolean(medico.mercadopago_configurado),
     },
-    // Solo los dias con turnos libres: la pagina publica no muestra dias vacios.
-    calendario: calendario.filter((d) => d.slots.length > 0),
+    /*
+     * Solo los dias con turnos libres: la pagina publica no muestra dias vacios.
+     *
+     * `jornadaLiberada` marca los dias en los que alguna jornada entro en la
+     * ventana de las 6 horas y por eso se ofrecen todos sus turnos libres en
+     * lugar de uno solo. La pantalla lo usa para explicarlo, porque si no el
+     * paciente que vio un unico horario hace un rato y ahora ve seis no
+     * entiende que cambio.
+     */
+    calendario: calendario
+      .filter((d) => d.slots.length > 0)
+      .map((d) => ({
+        ...d,
+        jornadaLiberada: medico.modo_agenda === 'orden_llegada'
+          && d.slots.some((s) => s.jornadaProxima),
+      })),
   });
 }
 
@@ -186,6 +213,17 @@ async function reservarPorHash(req, res) {
         direccion: turno.consultorio_direccion,
         montoTotal: Number(turno.monto_total),
       },
+      /*
+       * Codigo para que el paciente cancele despues.
+       *
+       * Quien reserva por el enlace es una cuenta invitada: no tiene usuario
+       * ni contrasena, asi que este codigo es su unico "acceso" al turno. Se
+       * le muestra en el comprobante y con el entra a /turno/<codigo>.
+       */
+      cancelacion: {
+        codigo: turno.codigo_cancelacion,
+        url: `${baseUrlPublica(req)}/turno/${turno.codigo_cancelacion}`,
+      },
       paciente: {
         nombre: paciente.nombre,
         apellido: paciente.apellido,
@@ -201,18 +239,115 @@ async function reservarPorHash(req, res) {
   }
 }
 
+/* ===================================================================== *
+ *      Acceso del paciente a su turno mediante el codigo (sin sesion)
+ * ===================================================================== */
+
+/**
+ * GET /api/turno/:codigo   (publico)
+ *
+ * Muestra el turno a quien tenga el codigo. Es el "acceso" del paciente que
+ * reservo por el enlace y no tiene cuenta.
+ *
+ * Solo devuelve lo necesario para que reconozca SU turno y decida cancelarlo.
+ * No expone el DNI completo ni el telefono: quien llega aca lo hace con un
+ * codigo, y si ese codigo se filtrara no deberia servir para sacar datos
+ * personales, solo para gestionar la reserva.
+ */
+async function verTurnoPorCodigo(req, res) {
+  const turno = await Turno.findByCodigoCancelacion(req.params.codigo);
+  if (!turno) throw ApiError.notFound('No encontramos ningun turno con ese codigo');
+
+  const horasRestantes = horasHasta(turno.fecha, turno.hora_inicio);
+
+  return res.json({
+    ok: true,
+    turno: {
+      fecha: turno.fecha,
+      horaInicio: turno.hora_inicio,
+      horaFin: turno.hora_fin,
+      estado: turno.estado,
+      consultorio: turno.consultorio,
+      direccion: turno.consultorio_direccion,
+      motivoCancelacion: turno.motivo_cancelacion,
+      canceladoPor: turno.cancelado_por,
+    },
+    profesional: {
+      nombre: turno.medico_nombre,
+      apellido: turno.medico_apellido,
+      especialidad: turno.especialidad,
+      tratamiento: tratamiento(turno.medico_genero),
+    },
+    paciente: {
+      // Solo el nombre, para que confirme que es su turno.
+      nombre: turno.paciente_nombre,
+      apellido: turno.paciente_apellido,
+    },
+    // El paciente puede cancelar mientras el turno no haya empezado.
+    puedeCancelar: turno.estado !== 'cancelado'
+      && turno.estado !== 'completado'
+      && horasRestantes > 0,
+    horasRestantes: Math.round(horasRestantes * 10) / 10,
+  });
+}
+
+/**
+ * POST /api/turno/:codigo/cancelar   (publico)
+ * Body: { motivo? }
+ *
+ * Cancela el turno. Al quedar en estado 'cancelado', el slot se libera solo:
+ * `activo_key` pasa a NULL, sale del indice unico y la disponibilidad lo
+ * vuelve a ofrecer en la siguiente consulta.
+ */
+async function cancelarTurnoPorCodigo(req, res) {
+  const turno = await Turno.findByCodigoCancelacion(req.params.codigo);
+  if (!turno) throw ApiError.notFound('No encontramos ningun turno con ese codigo');
+
+  if (turno.estado === 'cancelado') throw ApiError.conflict('Este turno ya estaba cancelado');
+  if (turno.estado === 'completado') throw ApiError.conflict('Este turno ya fue atendido');
+
+  const horasRestantes = horasHasta(turno.fecha, turno.hora_inicio);
+  if (horasRestantes <= 0) {
+    throw ApiError.conflict('El turno ya comenzo y no puede cancelarse. Comunicate con el consultorio.');
+  }
+
+  const cancelado = await Turno.cancelar(turno.id, {
+    canceladoPor: 'paciente',
+    motivo: req.body?.motivo || null,
+  });
+
+  return res.json({
+    ok: true,
+    mensaje: 'Turno cancelado. El horario vuelve a estar disponible para otros pacientes.',
+    turno: {
+      fecha: cancelado.fecha,
+      horaInicio: cancelado.hora_inicio,
+      estado: cancelado.estado,
+    },
+  });
+}
+
 /**
  * GET /api/medicos/mi/enlace  (medico)
  * Devuelve el enlace para compartir. Lo genera si el medico no lo tenia.
  */
 async function miEnlace(req, res) {
-  const identificador = await Medico.asegurarHashPublico(req.medico.id);
-  const medico = await Medico.findById(req.medico.id);
-
   // La base se deduce de la request (dominio real detras de Nginx) en vez de
   // depender de FRONTEND_URL, que suele quedar en localhost. Ver urlPublica.js
   const base = baseUrlPublica(req);
-  const url = `${base}/reservar/${identificador}`;
+
+  /*
+   * Enlace y QR juntos:
+   *   - si el enlace YA existe se conserva tal cual (puede estar impreso);
+   *   - el QR se genera la primera vez y se guarda en la base;
+   *   - en cada consulta se VERIFICA que el QR codifique la misma direccion
+   *     del enlace, y solo se regenera si dejaron de coincidir.
+   */
+  const resultado = await Medico.asegurarEnlaceConQR(req.medico.id, base);
+  if (!resultado) throw ApiError.notFound('Medico no encontrado');
+
+  const { medico, url, qrRegenerado, motivoQR } = resultado;
+  const identificador = medico.hash_publico;
 
   return res.json({
     ok: true,
@@ -221,6 +356,16 @@ async function miEnlace(req, res) {
     url,
     base,
     activo: Boolean(medico.enlace_activo),
+    /*
+     * El QR viene de la base, no se calcula al vuelo: es el MISMO que se
+     * emitio y quedo registrado. `qrVerificado` confirma que apunta al enlace
+     * vigente.
+     */
+    qr: medico.qr_data_url,
+    qrUrlCodificada: medico.qr_url_codificada,
+    qrVerificado: medico.qr_url_codificada === url,
+    qrRegenerado,
+    motivoQR,
     /*
      * Datos para la tarjeta con el codigo QR que el profesional imprime o
      * comparte. Van en esta misma respuesta y no en otra consulta porque la
@@ -232,6 +377,9 @@ async function miEnlace(req, res) {
       apellido: medico.apellido,
       especialidad: medico.especialidad,
       matricula: medico.matricula,
+      genero: medico.genero,
+      // "Dr." / "Dra." ya resuelto, para no repetir la logica en cada vista.
+      tratamiento: tratamiento(medico.genero),
     },
     // El frontend avisa si el enlace quedo apuntando a localhost, para que el
     // medico no copie algo que nadie puede abrir.
@@ -273,6 +421,8 @@ async function cambiarEstadoEnlace(req, res) {
 }
 
 module.exports = {
+  verTurnoPorCodigo,
+  cancelarTurnoPorCodigo,
   disponibilidadPorHash,
   reservarPorHash,
   miEnlace,
