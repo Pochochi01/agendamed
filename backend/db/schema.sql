@@ -68,23 +68,25 @@ CREATE TABLE medicos (
   user_id            INT UNSIGNED NOT NULL,
   especialidad_id    INT UNSIGNED NOT NULL,
   matricula          VARCHAR(40)  NOT NULL,
-  -- DNI del profesional. Es el primer componente del enlace publico, y el
-  -- unico del trio DNI+apellido+matricula que es unico por si solo: dos
-  -- profesionales pueden compartir apellido y, entre jurisdicciones, hasta el
-  -- numero de matricula. NULL-able para los que ya existian antes de pedirlo.
+  -- DNI del profesional: lo identifica de forma univoca, que es algo que
+  -- ni el apellido ni (entre jurisdicciones) la matricula garantizan.
+  -- NO forma parte del enlace publico: ese se arma con nombre, apellido y
+  -- especialidad, para no exponer un dato personal en una URL que se comparte
+  -- por WhatsApp y se imprime en un cartel.
+  -- NULL-able para los profesionales que ya existian antes de pedirlo.
   dni                VARCHAR(20)  NULL,
   -- Define como los nombra el sistema: "Dr." / "Dra.". NULL = sin indicar,
   -- que se muestra como "Dr/a." y es un valor valido, no un dato faltante.
   genero             ENUM('masculino','femenino') NULL,
   -- Identificador del enlace publico /reservar/:id.
-  -- Formato legible: dni-apellido-matricula (ej: "28456789-romero-mp-14523").
+  -- Formato legible: tratamiento-nombre-apellido-especialidad
+  -- (ej: "dra-laura-romero-cardiologia"). No lleva DNI ni matricula.
   -- Se eligio legible sobre aleatorio porque el enlace se comparte por
   -- WhatsApp y un token opaco parece spam. No expone nada que la busqueda
   -- publica de medicos no muestre ya. Ver utils/enlaceMedico.js.
   --
-  -- VARCHAR(255) y no menos: el largo depende del nombre del profesional y el
-  -- peor caso es matricula(40) + apellido(80) + nombre(80) + separadores(2) +
-  -- sufijo(6) = 208. Quedarse corto produce ER_DATA_TOO_LONG al guardar.
+  -- VARCHAR(255) y no menos: el largo depende del nombre del profesional y de
+  -- su especialidad. Quedarse corto produce ER_DATA_TOO_LONG al guardar.
   -- Debe mantenerse alineado con LARGO_MAXIMO de utils/enlaceMedico.js.
   hash_publico       VARCHAR(255) NULL,
   enlace_activo      TINYINT(1)   NOT NULL DEFAULT 1,
@@ -116,9 +118,8 @@ CREATE TABLE medicos (
   updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_medicos_user (user_id),
   UNIQUE KEY uq_medicos_matricula (matricula),
-  -- El DNI es unico porque forma parte del enlace publico. UNIQUE admite
-  -- varios NULL, asi que los profesionales que todavia no lo cargaron no
-  -- chocan entre si.
+  -- UNIQUE admite varios NULL, asi que los profesionales que todavia no
+  -- cargaron el DNI no chocan entre si.
   UNIQUE KEY uq_medicos_dni (dni),
   UNIQUE KEY uq_medicos_hash (hash_publico),
   KEY ix_medicos_especialidad (especialidad_id),

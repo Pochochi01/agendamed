@@ -105,8 +105,9 @@ export default function AdminMedicos() {
       telefono: form.telefono || null,
       especialidadId: Number(form.especialidadId),
       matricula: form.matricula,
-      // El DNI entra en el enlace publico del profesional (DNI + apellido +
-      // matricula), asi que conviene cargarlo desde el alta.
+      // Dato de identificacion del profesional. Ya NO forma parte del enlace
+      // publico: el enlace se arma con nombre, apellido y especialidad para
+      // no exponer datos personales en algo que se comparte e imprime.
       dni: form.dni.trim() || null,
       genero: form.genero || null,
       duracionTurnoMin: Number(form.duracionTurnoMin),
@@ -366,7 +367,7 @@ export default function AdminMedicos() {
                 <input name="matricula" value={form.matricula} onChange={alCambiar}
                   className="input" placeholder="MP-12345" required />
               </Campo>
-              <Campo label="DNI" ayuda="Forma parte del enlace publico de turnos.">
+              <Campo label="DNI" ayuda="Identifica al profesional. No aparece en el enlace de turnos.">
                 <input name="dni" value={form.dni} onChange={alCambiar} inputMode="numeric"
                   className="input" placeholder="30123456" />
               </Campo>

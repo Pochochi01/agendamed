@@ -238,11 +238,12 @@ export default function ReservaPorEnlace() {
                 {m.nombre[0]}{m.apellido[0]}
               </div>
               <div>
+                {/* Nombre y especialidad. La matricula no se muestra: al
+                    paciente no le dice nada y el backend ya no la manda. */}
                 <h1 className="text-xl font-bold text-slate-900">
-                  {nombreConTratamiento(m)}
+                  {nombreConTratamiento(m, { natural: true })}
                 </h1>
                 <p className="text-marca-600">{m.especialidad}</p>
-                <p className="text-xs text-slate-500">Mat. {m.matricula}</p>
               </div>
             </div>
             <div className="text-right">

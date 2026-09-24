@@ -24,17 +24,25 @@ function tratamiento(genero) {
 /**
  * Nombre completo con tratamiento, listo para mostrar.
  *
+ * Dos ordenes, segun para quien sea el texto:
+ *
+ *   natural: false  ->  "Dra. Romero, Laura"   listados y pantallas internas,
+ *                                              donde se busca por apellido
+ *   natural: true   ->  "Dra. Laura Romero"    material para el paciente,
+ *                                              donde se lee como presentacion
+ *
  * @param {Object} medico  con genero, apellido y nombre
  * @param {Object} [opciones]
  * @param {boolean} [opciones.soloApellido]
- * @returns {string} "Dra. Romero, Laura"
+ * @param {boolean} [opciones.natural]
+ * @returns {string}
  */
-function nombreConTratamiento(medico, { soloApellido = false } = {}) {
+function nombreConTratamiento(medico, { soloApellido = false, natural = false } = {}) {
   if (!medico) return '';
   const titulo = tratamiento(medico.genero ?? medico.medico_genero);
-  return soloApellido
-    ? `${titulo} ${medico.apellido}`
-    : `${titulo} ${medico.apellido}, ${medico.nombre}`;
+  if (soloApellido) return `${titulo} ${medico.apellido}`;
+  if (natural) return `${titulo} ${medico.nombre} ${medico.apellido}`;
+  return `${titulo} ${medico.apellido}, ${medico.nombre}`;
 }
 
 module.exports = { tratamiento, nombreConTratamiento, NEUTRO };

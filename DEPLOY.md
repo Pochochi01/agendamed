@@ -488,6 +488,25 @@ npm ci
 npm run build            # Nginx sirve el dist nuevo, no hace falta recargarlo
 ```
 
+### Paso único de esta versión: migrar los enlaces públicos
+
+El identificador del enlace cambió de formato para dejar de exponer el DNI del profesional:
+
+```
+antes   /reservar/28456789-romero-mp-14523
+ahora   /reservar/dra-laura-romero-cardiologia
+```
+
+Los enlaces ya generados **no se migran solos** (se conservan a propósito, porque pueden estar impresos). Después de desplegar:
+
+```bash
+cd backend
+npm run db:enlaces                 # muestra qué cambiaría, sin tocar nada
+npm run db:enlaces -- --aplicar    # lo aplica
+```
+
+> **Los enlaces anteriores dejan de funcionar.** Es el objetivo: si siguieran resolviendo, el DNI seguiría circulando en los enlaces ya compartidos. El QR guardado se borra y se regenera apuntando a la dirección nueva la próxima vez que cada profesional entre a `/medico/enlace`. Avisales que vuelvan a compartir el enlace y a imprimir el cartel.
+
 ---
 
 ## Si algo falla

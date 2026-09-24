@@ -31,7 +31,7 @@ const COLUMNAS_ESPERADAS = [
     columna: 'hash_publico',
     largoMinimo: LARGO_MAXIMO,
     migracion: '004_hash_publico_255.sql',
-    porque: 'el enlace /reservar/:id se arma con DNI, apellido y matricula',
+    porque: 'el enlace /reservar/:id se arma con nombre, apellido y especialidad',
   },
   // Sin largoMinimo: solo se comprueba que la columna exista. Son columnas
   // nuevas cuyo tipo no puede quedarse corto (ENUM o TEXT), pero cuya ausencia
@@ -40,7 +40,7 @@ const COLUMNAS_ESPERADAS = [
     tabla: 'medicos',
     columna: 'dni',
     migracion: '005_agenda_avanzada.sql',
-    porque: 'es el primer componente del enlace publico del medico',
+    porque: 'identifica al profesional y es unico entre todos',
   },
   {
     tabla: 'medicos',

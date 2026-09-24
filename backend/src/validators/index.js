@@ -27,9 +27,9 @@ const registro = [
     .trim().notEmpty().withMessage('La matricula es obligatoria para un medico'),
   body('precioConsulta')
     .optional({ values: 'falsy' }).isFloat({ min: 0 }).withMessage('Precio invalido'),
-  // El DNI se pide a los dos roles, por motivos distintos: al paciente lo
-  // identifica (es su clave natural en el sistema), y al medico le arma el
-  // enlace publico, que se construye con DNI + apellido + matricula.
+  // El DNI se pide a los dos roles: es la clave natural del paciente en el
+  // sistema y distingue de forma univoca al profesional. En ninguno de los
+  // dos casos aparece en el enlace publico.
   body('dni')
     .trim().notEmpty().withMessage('El DNI es obligatorio')
     .isLength({ min: 6, max: 20 }).withMessage('DNI invalido')

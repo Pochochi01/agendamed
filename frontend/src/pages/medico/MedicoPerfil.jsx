@@ -411,7 +411,7 @@ function BloqueProfesional({ medico, onGuardado }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Campo label="DNI" requerido error={errors.dni?.message}
-          ayuda="Con el DNI, tu apellido y tu matricula se arma tu enlace de turnos.">
+          ayuda="Te identifica en el sistema. No aparece en tu enlace de turnos.">
           <input className="input" inputMode="numeric" placeholder="30123456"
             {...register('dni', {
               required: 'El DNI es obligatorio',

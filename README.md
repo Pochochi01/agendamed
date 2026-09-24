@@ -91,6 +91,7 @@ El migrador lleva registro en la tabla `migraciones`, así que se puede correr l
 | `npm run db:admin -- <email> <pass>` | Crea o recupera la cuenta de administrador sin tocar el resto. |
 | `npm run db:check` | Comprueba que instalar de cero dé la misma base que migrar. |
 | `npm run db:test-install` | Ensaya la instalación completa de un servidor nuevo. |
+| `npm run db:enlaces [-- --aplicar]` | Pasa los enlaces públicos existentes al formato actual. |
 
 ### Las dos rutas tienen que coincidir
 
@@ -159,19 +160,32 @@ Vite proxea `/api` al backend, así que no hay que tocar CORS en desarrollo.
 
 Ruta **pública, sin sesión**. El médico comparte el enlace (`/medico/enlace`) y el paciente entra, ve los turnos libres de ese profesional y reserva con nombre y DNI.
 
-**El identificador es legible**, armado con **DNI + apellido + matrícula**:
+**El identificador es legible**, armado con **tratamiento + nombre + apellido + especialidad**:
 
 ```
-/reservar/30987654-romero-mp-14523
+/reservar/dr-luis-gomez-tocoginecologia
 ```
 
-El DNI va primero porque es lo único del trío que es único por sí solo: dos profesionales pueden compartir apellido y, entre jurisdicciones, hasta el número de matrícula. Igual la unicidad **no se deduce, se verifica**: antes de asignarlo se consulta la tabla, y si ya existe se agrega un sufijo numérico. El médico que todavía no cargó su DNI conserva el formato anterior (matrícula + apellido + nombre), así que ningún enlace impreso deja de funcionar.
+**Solo lleva lo que el paciente necesita reconocer**: de quién es el turno y de qué. Nada de datos personales ni administrativos del profesional.
 
-Antes era un token aleatorio (`elvJc7LnEfGs2EDCuuW5Sw`). Se cambió porque el enlace se comparte por WhatsApp y un token opaco parece spam; así el paciente reconoce de quién es antes de abrirlo. [`enlaceMedico.js`](backend/src/utils/enlaceMedico.js) quita tildes, pasa a minúsculas y colapsa símbolos a guiones, así que `Núñez, José` → `nunez-jose`.
+Eso fue un cambio de rumbo deliberado. El formato anterior era `DNI + apellido + matrícula` (`/reservar/28456789-romero-mp-14523`), elegido porque el DNI y la matrícula son únicos y garantizaban que el slug no se repitiera. El problema es dónde termina ese enlace: pegado en el estado de WhatsApp, impreso en un cartel en la puerta del consultorio, reenviado entre pacientes. **El DNI del profesional viajaba a la vista en todos esos lugares**, sin aportar nada a quien saca un turno.
 
-> **Lo que se pierde, dicho explícitamente.** Un identificador legible es **adivinable**: sabiendo matrícula y nombre se puede construir el enlace sin que lo compartan. Eso no filtra nada nuevo —la página muestra nombre, especialidad, precio y turnos libres, exactamente lo que ya devuelve la búsqueda pública de `/api/medicos` a cualquiera—, pero conviene tenerlo claro: el enlace es un atajo, no un secreto.
+Lo que se pagó por sacarlo: el identificador ya **no es único por construcción**. Dos "Juan Pérez" clínicos generan el mismo slug. Por eso la unicidad **no se deduce, se verifica**: `construirIdentificadorUnico` consulta la tabla antes de asignar y agrega un sufijo numérico si hace falta (`dr-juan-perez-clinica-1`). Era una verificación que ya existía; ahora además hace falta.
+
+Antes de todo eso era un token aleatorio (`elvJc7LnEfGs2EDCuuW5Sw`). Se cambió porque un token opaco compartido por WhatsApp parece spam. [`enlaceMedico.js`](backend/src/utils/enlaceMedico.js) quita tildes, pasa a minúsculas y colapsa símbolos a guiones, así que `Núñez, José` → `nunez-jose`.
+
+> **Lo que se pierde, dicho explícitamente.** Un identificador legible es **adivinable**: sabiendo el nombre y la especialidad de un profesional se puede construir su enlace sin que lo compartan. Eso no filtra nada nuevo —la página muestra nombre, especialidad y turnos libres, exactamente lo que ya devuelve la búsqueda pública de `/api/medicos` a cualquiera—, pero conviene tenerlo claro: el enlace es un atajo, no un secreto.
 >
-> Lo que sí se pierde es invalidar rotando el identificador, porque regenerarlo daría el mismo texto. Se conserva de dos formas: `enlace_activo` lo apaga sin perderlo, y **regenerar agrega un sufijo numérico** (`...-mp-14523-2`), con lo que el anterior deja de resolver.
+> Lo que sí se pierde es invalidar rotando el identificador, porque regenerarlo daría el mismo texto. Se conserva de dos formas: `enlace_activo` lo apaga sin perderlo, y **regenerar agrega un sufijo numérico** (`...-cardiologia-2`), con lo que el anterior deja de resolver.
+
+**Migrar los enlaces ya existentes.** El código por sí solo no toca los enlaces generados con el formato viejo: los conserva a propósito, porque pueden estar impresos. Para pasarlos al formato nuevo hay un script explícito:
+
+```bash
+npm run db:enlaces                 # muestra qué cambiaría, sin tocar nada
+npm run db:enlaces -- --aplicar    # lo aplica
+```
+
+Al aplicarlo, **los enlaces anteriores dejan de resolver** —que es el objetivo: si siguieran andando, el DNI seguiría circulando— y el QR guardado se borra para regenerarse apuntando a la dirección nueva. Hay que volver a repartir el enlace y a imprimir los carteles.
 
 **Una vez generado, el enlace no se toca.** Cada consulta a `/api/medicos/mi/enlace` devuelve el que ya está guardado; no se recalcula aunque cambien los datos del médico. Eso es deliberado: el enlace vive en carteles impresos, en el estado de WhatsApp y en la agenda de los pacientes, y un cambio silencioso los rompería a todos a la vez. Para cambiarlo hay un botón explícito de **Regenerar**, que avisa que el anterior deja de funcionar.
 
@@ -224,7 +238,7 @@ Guardarlo, en vez de recalcularlo en cada pantalla, es lo que permite **verifica
 
 ```
 GET /api/medicos/mi/enlace
-  ├─ ¿tiene enlace?  no ─► lo genera (DNI + apellido + matrícula, único)
+  ├─ ¿tiene enlace?  no ─► lo genera (nombre + apellido + especialidad, único verificado)
   ├─ ¿tiene QR?      no ─► lo genera y lo guarda
   ├─ ¿qr_url_codificada === url del enlace?
   │      sí ─► devuelve el guardado    (qrRegenerado: false)
@@ -787,11 +801,12 @@ ngrok http 4000
 - 22 aserciones sobre el CRUD del admin: orden de borrado verificado contra las FK declaradas en el esquema, uso de transacción, que no se toquen datos ajenos al tenant, la puerta de confirmación por email y el orden de las rutas frente a `/:id` — todas OK.
 - 44 aserciones sobre el módulo de agendamiento: hash no enumerable (1000 sin colisión, rechazo de ids y de inyección), normalización del WhatsApp, **la restricción del audio verificada sobre el código y el esquema reales** (sin `multer`, sin `multipart`, sin columna de audio, sin `MediaRecorder`/`Blob`/`FormData`), bloqueo de nuevas reservas al cancelar el día, aislamiento de los datos clínicos y cuentas invitadas — todas OK.
 
+- **20 aserciones sobre el identificador del enlace** contra el generador real: que salga `dr-luis-gomez-tocoginecologia`, que **ni el DNI ni la matrícula** aparezcan aunque se le pasen, el tratamiento según el género (y que sin género no invente un `dr-a`), tildes y eñes (`Núñez Peña` → `nunez-pena`), símbolos (`O'Connor` → `o-connor`), dos homónimos generando el mismo slug base y el sufijo desempatándolos, el peor caso entrando en `VARCHAR(255)` sin comerse el sufijo, y que los enlaces de los formatos anteriores sigan pasando la validación de forma — todas OK. Verificado además contra la API real: el enlace nuevo resuelve, el anterior devuelve 404, la respuesta pública ya no incluye `matricula` ni `dni`, y el PNG del QR decodificado con `jsQR` lleva exactamente a la dirección nueva.
 - **Auditoría de formularios contra las tablas**: para cada columna de cada tabla se verificó quién la escribe, quién la valida y qué formulario la ofrece. Ninguna columna quedó sin escritor, y ninguna columna obligatoria (`NOT NULL` sin default) quedó sin una fuente —formulario o servidor—. Las que no aparecen en ningún formulario son internas a propósito: `hash_publico`, `qr_data_url`, `qr_url_codificada`, `codigo_cancelacion`, `rango_id`, `password_hash` y las credenciales cifradas de MercadoPago. El único hueco real que apareció fue el alta pública de profesionales, que no pedía `dni` ni `genero`: quedó corregido, y `db:test-install` lo comprueba registrando un médico y verificando que su enlace salga con el DNI.
 - **28 aserciones sobre la instalación en un servidor nuevo** (`npm run db:test-install`): schema.sql + seed + `db:up` sin pendientes + integridad de los datos cargados + la API arrancando y operando sobre esa base. Ambos chequeos (`db:check` y `db:test-install`) se probaron **al revés** además: quitando una columna de `schema.sql` y agregando una migración sin registrar, para confirmar que fallan cuando tienen que fallar.
 - **18 aserciones sobre la ventana de 6 horas del modo orden de llegada**, con el reloj congelado y los modelos reemplazados por datos fijos (no toca la base), incluido el ejemplo del pedido: jornada de 9 a 12, ocupado de 9 a 11, cancelados 9:20 y 10:00. Cubre el borde exacto de las 6 h (a 6 h 1 min sigue la fila, a 5 h 59 min se libera), la jornada ya empezada, el caso de dos jornadas el mismo día con solo una dentro de la ventana, que selección libre no cambie de comportamiento, y que la vista del médico muestre los 5 huecos mientras el paciente ve 1 — todas OK. Verificado además contra la API real: reservar un turno que está más atrás en la fila devuelve 409.
 - **33 aserciones de punta a punta contra la API y la base reales**, sobre las cinco partes de la tanda anterior:
-  - **Enlace y QR:** el identificador sale de DNI + apellido + matrícula; el enlace ya generado no cambia entre consultas; el QR viene guardado, codifica exactamente la URL del enlace y **no se regenera** cuando ya coincide (`qrRegenerado: false`). Además se decodificó el PNG guardado con `jsQR`: lleva a la URL del enlace, carácter por carácter.
+  - **Enlace y QR:** el enlace ya generado no cambia entre consultas; el QR viene guardado, codifica exactamente la URL del enlace y **no se regenera** cuando ya coincide (`qrRegenerado: false`). Además se decodificó el PNG guardado con `jsQR`: lleva a la URL del enlace, carácter por carácter.
   - **Turnos:** en `libre` se ofrecen los 9 horarios del día; en `orden_llegada`, uno solo por consultorio. Al reservar, ese horario deja de ofrecerse y se habilita el siguiente. El paciente ve su turno con el código, lo cancela, **el horario vuelve a estar disponible** y un segundo intento de cancelar devuelve 409. El médico cancela desde el slot y el horario también se libera.
   - **Género:** DNI y género se guardan y persisten; las respuestas públicas y el turno del paciente devuelven `"Dra."`.
   - **Suspensiones:** un rango de tres días deja de ofrecer turnos, se lista agrupado con su motivo, se levanta de una vez y los días vuelven a aparecer. Un día cancelado de a uno (sin `rango_id`) se lista como `dia-<fecha>` y también se puede levantar.

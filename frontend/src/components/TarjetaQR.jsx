@@ -97,7 +97,8 @@ export default function TarjetaQR({
    * comparte el enlace como texto.
    */
   const compartir = async () => {
-    const texto = `Reserva tu turno con ${nombreConTratamiento(profesional, { soloApellido: true })} (${profesional.especialidad})`;
+    // Lo que se manda al compartir: nombre y especialidad, nada mas.
+    const texto = `Reserva tu turno con ${nombreConTratamiento(profesional, { natural: true })} - ${profesional.especialidad}`;
 
     try {
       if (imagenQR && navigator.canShare) {
@@ -156,11 +157,16 @@ export default function TarjetaQR({
           Turnos online
         </p>
 
+        {/*
+          Solo nombre y especialidad: "Dr. Luis Gomez / Tocoginecologia".
+          La matricula NO se muestra. Esta tarjeta se imprime, se fotografia y
+          se manda por WhatsApp, y el paciente no la necesita para nada: lo
+          unico que tiene que reconocer es de quien es el turno.
+        */}
         <h3 className="mt-2 text-xl font-bold leading-tight text-slate-900">
-          {nombreConTratamiento(profesional)}
+          {nombreConTratamiento(profesional, { natural: true })}
         </h3>
         <p className="text-sm font-medium text-slate-700">{profesional.especialidad}</p>
-        <p className="text-xs text-slate-500">Mat. {profesional.matricula}</p>
 
         <div className="my-5 flex items-center justify-center">
           {generando ? (

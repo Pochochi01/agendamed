@@ -140,19 +140,20 @@ const Medico = {
   /**
    * Arma el identificador y garantiza que no colisione con otro medico.
    *
-   * La matricula es UNIQUE, asi que en la practica no deberia repetirse; el
-   * bucle cubre el caso de dos matriculas que normalizan igual
-   * ("MP 123" y "MP-123").
+   * Aca el bucle NO es una formalidad. El identificador se arma con nombre,
+   * apellido y especialidad, que no son unicos: dos "Juan Perez" clinicos
+   * generan el mismo slug. El primero se lo queda y el segundo recibe
+   * "...-2". Por eso se consulta la base antes de asignar, siempre.
    *
    * @param {Object} medico  fila de v_medicos
    * @param {number} [desde] primer sufijo a probar (lo usa regenerar)
    */
   async construirIdentificadorUnico(medico, desde = 0) {
     const base = {
-      dni: medico.dni,
+      nombre: medico.nombre,
       apellido: medico.apellido,
-      matricula: medico.matricula,
-      nombre: medico.nombre,   // respaldo si el profesional no tiene DNI cargado
+      especialidad: medico.especialidad,
+      genero: medico.genero,
     };
 
     for (let sufijo = desde; sufijo < desde + 50; sufijo += 1) {
@@ -189,9 +190,10 @@ const Medico = {
    * Genera un identificador nuevo: invalida el enlace anterior.
    * Sirve si el medico compartio el enlace donde no debia.
    *
-   * Como el slug se deriva de datos fijos (matricula y nombre), regenerarlo
-   * daria el mismo texto. Por eso se agrega un sufijo numerico incremental:
-   *   mp-14523-romero-laura -> mp-14523-romero-laura-2 -> ...-3
+   * Como el slug se deriva de datos que no cambian (nombre, apellido,
+   * especialidad), regenerarlo daria el mismo texto. Por eso se agrega un
+   * sufijo numerico incremental:
+   *   dra-laura-romero-cardiologia -> ...-cardiologia-2 -> ...-3
    * Asi el enlace viejo deja de resolver, que es el objetivo.
    */
   async regenerarHashPublico(id) {

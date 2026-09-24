@@ -54,8 +54,9 @@ export default function Registro() {
       email: form.email,
       telefono: form.telefono || null,
       password: form.password,
-      // El DNI lo cargan los dos roles: identifica al paciente y le arma el
-      // enlace publico al medico (DNI + apellido + matricula).
+      // El DNI lo cargan los dos roles: identifica al paciente al reservar y
+      // al profesional lo distingue de forma univoca. NO entra en el enlace
+      // publico, que se arma con nombre, apellido y especialidad.
       dni: form.dni.trim(),
       ...(esMedico
         ? {
@@ -137,7 +138,7 @@ export default function Registro() {
               </Campo>
               <Campo label="DNI" requerido
                 ayuda={esMedico
-                  ? 'Con tu DNI, apellido y matricula se arma tu enlace de turnos.'
+                  ? 'Te identifica en el sistema. No aparece en tu enlace de turnos.'
                   : 'Es como te identifica el sistema al reservar.'}>
                 <input name="dni" value={form.dni} onChange={alCambiar} inputMode="numeric"
                   className="input" placeholder="30123456" required />

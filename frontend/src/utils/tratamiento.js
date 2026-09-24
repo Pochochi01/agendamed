@@ -26,18 +26,28 @@ export function tratamiento(genero) {
  * Acepta tanto un objeto con `genero` como uno que ya traiga `tratamiento`
  * resuelto por el backend, para no tener que normalizar en cada llamada.
  *
+ * Dos ordenes, segun para quien sea el texto:
+ *
+ *   natural: false  ->  "Dra. Romero, Laura"   listados y pantallas internas,
+ *                                              donde se busca por apellido
+ *   natural: true   ->  "Dra. Laura Romero"    material para el paciente
+ *                                              (tarjeta, enlace), donde se lee
+ *                                              como una presentacion
+ *
  * @param {Object} medico
  * @param {Object} [opciones]
  * @param {boolean} [opciones.soloApellido]
- * @returns {string} "Dra. Romero, Laura"
+ * @param {boolean} [opciones.natural]
+ * @returns {string}
  */
-export function nombreConTratamiento(medico, { soloApellido = false } = {}) {
+export function nombreConTratamiento(medico, { soloApellido = false, natural = false } = {}) {
   if (!medico) return '';
   const titulo = medico.tratamiento || tratamiento(medico.genero ?? medico.medico_genero);
   const apellido = medico.apellido || medico.medico_apellido || '';
   const nombre = medico.nombre || medico.medico_nombre || '';
 
   if (soloApellido || !nombre) return `${titulo} ${apellido}`.trim();
+  if (natural) return `${titulo} ${nombre} ${apellido}`;
   return `${titulo} ${apellido}, ${nombre}`;
 }
 

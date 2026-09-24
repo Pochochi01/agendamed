@@ -79,9 +79,10 @@ async function disponibilidadPorHash(req, res) {
     /*
      * Datos del profesional para la pagina publica.
      *
-     * NO se envia el precio de la consulta: el consultorio pidio sacarlo de
-     * esta vista. Al no salir del servidor, tampoco queda expuesto en la
-     * respuesta para quien mire la red.
+     * NO se envia el precio de la consulta ni la matricula: el consultorio
+     * pidio que esta pantalla muestre solo nombre y especialidad. Al no salir
+     * del servidor, tampoco quedan expuestos en la respuesta para quien mire
+     * la red; sacarlos solo del render los habria dejado igual de visibles.
      *
      * `porcentajeSena` y `mercadopagoConfigurado` si viajan, pero no se
      * muestran: los necesita el paso de pago que va DESPUES de reservar.
@@ -92,7 +93,6 @@ async function disponibilidadPorHash(req, res) {
       genero: medico.genero,
       tratamiento: tratamiento(medico.genero),
       especialidad: medico.especialidad,
-      matricula: medico.matricula,
       duracionTurnoMin: medico.duracion_turno_min,
       modoAgenda: medico.modo_agenda,
       porcentajeSena: medico.porcentaje_sena,

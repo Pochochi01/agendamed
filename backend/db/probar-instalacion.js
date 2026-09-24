@@ -232,8 +232,14 @@ function correr(script) {
         const enlace = await pedir('/medicos/mi/enlace', {
           headers: { Authorization: `Bearer ${token}` },
         });
-        comprobar('el enlace se arma con el DNI que se cargo en el alta',
-          String(enlace.datos.hash || '').startsWith('39888777-'), String(enlace.datos.hash));
+        // El enlace se comparte e imprime: lleva nombre, apellido y
+        // especialidad, y NADA de datos personales del profesional.
+        const hash = String(enlace.datos.hash || '');
+        comprobar('el enlace se arma con el nombre y la especialidad',
+          hash.includes('prueba') && hash.includes('instalacion'), hash);
+        comprobar('el enlace NO lleva el DNI', !hash.includes('39888777'), hash);
+        comprobar('el enlace NO lleva la matricula',
+          !hash.includes('99999') && !hash.includes('mp-'), hash);
         comprobar('el QR queda guardado y apunta al enlace',
           Boolean(enlace.datos.qr) && enlace.datos.qrUrlCodificada === enlace.datos.url,
           `${String(enlace.datos.qrUrlCodificada)} vs ${String(enlace.datos.url)}`);
@@ -258,6 +264,37 @@ function correr(script) {
         });
         comprobar('un DNI repetido se rechaza con un mensaje, no con un 500',
           repetido.estado === 409, `estado ${repetido.estado} ${String(repetido.datos.mensaje || '')}`);
+
+        /*
+         * Homonimos. Con el formato anterior (DNI + matricula) la colision era
+         * imposible por construccion; con nombre + especialidad SI puede
+         * pasar, asi que hay que comprobar que el segundo reciba un sufijo en
+         * vez de chocar contra el indice unico.
+         */
+        const gemelo = await pedir('/auth/registro', {
+          method: 'POST',
+          body: JSON.stringify({
+            rol: 'medico',
+            nombre: 'Prueba', apellido: 'Instalacion',   // mismo nombre y apellido
+            email: `gemelo.${Date.now()}@ejemplo.test`,
+            password: 'Prueba1234',
+            dni: '39888778',                              // distinto DNI
+            genero: 'masculino',
+            especialidadId: 1,                            // misma especialidad
+            matricula: 'MP-77777',
+          }),
+        });
+        comprobar('un homonimo de la misma especialidad se puede registrar',
+          gemelo.estado === 201, `estado ${gemelo.estado} ${JSON.stringify(gemelo.datos.mensaje || '')}`);
+
+        if (gemelo.estado === 201) {
+          const enlaceGemelo = await pedir('/medicos/mi/enlace', {
+            headers: { Authorization: `Bearer ${gemelo.datos.token}` },
+          });
+          comprobar('y recibe un enlace DISTINTO del homonimo',
+            enlaceGemelo.datos.hash && enlaceGemelo.datos.hash !== hash,
+            `${hash}  vs  ${enlaceGemelo.datos.hash}`);
+        }
       }
 
       // Login con una de las cuentas del seed: prueba que los hashes entraron.

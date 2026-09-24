@@ -132,8 +132,9 @@ export default function MedicoEnlace() {
         </div>
 
         <p className="text-xs text-slate-500">
-          El identificador se arma con tu <b>DNI, apellido y matricula</b>. Es unico e
-          irrepetible: una vez generado no cambia, salvo que lo regeneres a mano.
+          El identificador se arma con tu <b>nombre, apellido y especialidad</b>, para que
+          el paciente reconozca de quien es el enlace al recibirlo. No incluye tu DNI ni tu
+          matricula. Una vez generado no cambia, salvo que lo regeneres a mano.
         </p>
 
         <div className="flex flex-wrap gap-2">
@@ -214,7 +215,7 @@ export default function MedicoEnlace() {
             publicado en algun lado, tendras que volver a enviar el nuevo.
           </Aviso>
           <p className="text-sm text-slate-600">
-            Como el enlace se arma con tu matricula y tu nombre, el nuevo sera el mismo con un
+            Como el enlace se arma con tu nombre y tu especialidad, el nuevo sera el mismo con un
             numero al final (por ejemplo <code className="font-mono text-xs">...-2</code>).
             Los turnos ya reservados no se ven afectados.
           </p>
