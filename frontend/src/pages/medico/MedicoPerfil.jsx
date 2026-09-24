@@ -296,6 +296,42 @@ function BloqueAcceso({ usuario, onGuardado }) {
 /* ===================================================================== *
  *                      3. Datos profesionales
  * ===================================================================== */
+
+/**
+ * Prefijo fijo de la matricula.
+ *
+ * El cuadro de texto muestra "MP-" como parte del campo pero FUERA del input:
+ * no se puede borrar ni editar, y el profesional solo tipea los numeros. Asi
+ * el valor guardado queda siempre con el mismo formato, en lugar de depender
+ * de que cada uno lo escriba igual ("MP-2505", "mp-2505", "2505").
+ */
+const PREFIJO_MATRICULA = 'MP-';
+
+/**
+ * Deja solo los digitos de la matricula para mostrarlos en el cuadro.
+ *
+ * Tolera lo que ya pueda haber guardado: con o sin prefijo, en mayuscula o
+ * minuscula, con espacios. Todo lo que no sea un digito se descarta, asi que
+ * el valor que se vuelve a guardar siempre es PREFIJO + numeros.
+ */
+function soloNumeros(matricula) {
+  return String(matricula || '').replace(/\D/g, '');
+}
+
+/**
+ * Lo que se guardo originalmente, menos el prefijo y los digitos.
+ *
+ * Sirve para avisarle al profesional que su matricula tenia otra forma (por
+ * ejemplo "MN-1234", de otra jurisdiccion) y que al guardar va a cambiar.
+ * Cambiar el dato sin decirlo seria peor que no poder cambiarlo.
+ */
+function restoDescartado(matricula) {
+  return String(matricula || '')
+    .replace(new RegExp(`^\\s*${PREFIJO_MATRICULA}`, 'i'), '')
+    .replace(/\d/g, '')
+    .trim();
+}
+
 function BloqueProfesional({ medico, onGuardado }) {
   const [error, setError] = useState(null);
   const [especialidadId, setEspecialidadId] = useState(medico.especialidad_id);
@@ -303,12 +339,14 @@ function BloqueProfesional({ medico, onGuardado }) {
   const [tocado, setTocado] = useState(false);
 
   const {
-    register, handleSubmit, watch, formState: { errors, isDirty, isSubmitting }, reset,
+    register, handleSubmit, watch, setValue, formState: { errors, isDirty, isSubmitting }, reset,
   } = useForm({
     defaultValues: {
       dni: medico.dni || '',
       genero: medico.genero || '',
-      matricula: medico.matricula || '',
+      // En el formulario viaja SOLO la parte numerica; el prefijo se agrega
+      // al guardar. Ver PREFIJO_MATRICULA.
+      matricula: soloNumeros(medico.matricula),
       precioConsulta: medico.precio_consulta ?? '',
       porcentajeSena: medico.porcentaje_sena ?? 30,
     },
@@ -316,6 +354,9 @@ function BloqueProfesional({ medico, onGuardado }) {
 
   // Para mostrar "Dr." / "Dra." mientras se elige, sin esperar a guardar.
   const generoElegido = watch('genero');
+
+  // La parte numerica de la matricula. El prefijo se agrega al guardar.
+  const matriculaNumeros = watch('matricula');
 
   const elegirEspecialidad = (id, especialidad) => {
     setEspecialidadId(id);
@@ -335,7 +376,7 @@ function BloqueProfesional({ medico, onGuardado }) {
         dni: valores.dni.trim(),
         // Vacio = "prefiero no cargarlo": se manda null y se muestra "Dr/a."
         genero: valores.genero || null,
-        matricula: valores.matricula,
+        matricula: `${PREFIJO_MATRICULA}${valores.matricula}`,
         // La duracion del turno se edita en Horarios, que es donde se usa.
         duracionTurnoMin: Number(medico.duracion_turno_min),
         precioConsulta: Number(valores.precioConsulta || 0),
@@ -388,10 +429,50 @@ function BloqueProfesional({ medico, onGuardado }) {
         </Campo>
       </div>
 
+      {restoDescartado(medico.matricula) && (
+        <Aviso tipo="alerta">
+          Tu matrícula figura como <b>{medico.matricula}</b>, que no sigue el formato{' '}
+          <b>{PREFIJO_MATRICULA}número</b>. Si guardás, va a quedar como{' '}
+          <b>{PREFIJO_MATRICULA}{soloNumeros(medico.matricula)}</b>. Si no es lo que
+          corresponde, avisale al administrador antes de guardar.
+        </Aviso>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2">
-        <Campo label="Matricula" requerido error={errors.matricula?.message}>
-          <input className="input" placeholder="MP-12345"
-            {...register('matricula', { required: 'La matricula es obligatoria' })} />
+        <Campo label="Matricula" requerido error={errors.matricula?.message}
+          ayuda={`Cargá solo los números: el prefijo ${PREFIJO_MATRICULA} ya está puesto.`}>
+          {/* El prefijo es parte del recuadro pero no del input: no se puede
+              seleccionar, borrar ni tabular hasta el. El focus del input pinta
+              el borde del contenedor entero para que se vea como un campo. */}
+          <div className="flex items-stretch rounded-lg bg-white shadow-sm ring-1 ring-inset ring-slate-300
+                          focus-within:ring-2 focus-within:ring-inset focus-within:ring-marca-600">
+            <span aria-hidden="true"
+              className="flex select-none items-center rounded-l-lg border-r border-slate-200
+                         bg-slate-50 px-3 text-sm font-semibold text-slate-500">
+              {PREFIJO_MATRICULA}
+            </span>
+            {/*
+              Campo CONTROLADO a proposito. El filtro se aplica en el onChange
+              y el estado del formulario nunca llega a contener otra cosa que
+              digitos: si alguien pega "MP-2505", queda "2505" y no se guarda
+              "MP-MP-2505". Dejarlo sin controlar y limpiar al enviar abriria
+              la ventana de ver una cosa en pantalla y guardar otra.
+            */}
+            <input
+              className="block w-full rounded-r-lg border-0 bg-transparent px-3 py-2 text-slate-900
+                         placeholder:text-slate-400 focus:outline-none focus:ring-0 sm:text-sm"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="12345"
+              maxLength={20}
+              aria-label={`Numero de matricula, con prefijo ${PREFIJO_MATRICULA}`}
+              {...register('matricula', { required: 'Cargá el número de tu matrícula' })}
+              value={matriculaNumeros ?? ''}
+              onChange={(e) => setValue('matricula', soloNumeros(e.target.value), {
+                shouldDirty: true,
+                shouldValidate: true,
+              })} />
+          </div>
         </Campo>
         <Campo label="Precio de la consulta" error={errors.precioConsulta?.message}>
           <input type="number" min="0" step="100" className="input"
