@@ -68,8 +68,16 @@ CREATE TABLE medicos (
   user_id            INT UNSIGNED NOT NULL,
   especialidad_id    INT UNSIGNED NOT NULL,
   matricula          VARCHAR(40)  NOT NULL,
+  -- DNI del profesional. Es el primer componente del enlace publico, y el
+  -- unico del trio DNI+apellido+matricula que es unico por si solo: dos
+  -- profesionales pueden compartir apellido y, entre jurisdicciones, hasta el
+  -- numero de matricula. NULL-able para los que ya existian antes de pedirlo.
+  dni                VARCHAR(20)  NULL,
+  -- Define como los nombra el sistema: "Dr." / "Dra.". NULL = sin indicar,
+  -- que se muestra como "Dr/a." y es un valor valido, no un dato faltante.
+  genero             ENUM('masculino','femenino') NULL,
   -- Identificador del enlace publico /reservar/:id.
-  -- Formato legible: matricula-apellido-nombre (ej: "mp-14523-romero-laura").
+  -- Formato legible: dni-apellido-matricula (ej: "28456789-romero-mp-14523").
   -- Se eligio legible sobre aleatorio porque el enlace se comparte por
   -- WhatsApp y un token opaco parece spam. No expone nada que la busqueda
   -- publica de medicos no muestre ya. Ver utils/enlaceMedico.js.
@@ -80,7 +88,19 @@ CREATE TABLE medicos (
   -- Debe mantenerse alineado con LARGO_MAXIMO de utils/enlaceMedico.js.
   hash_publico       VARCHAR(255) NULL,
   enlace_activo      TINYINT(1)   NOT NULL DEFAULT 1,
+  -- QR del enlace, generado en el servidor y GUARDADO (PNG en base64), junto
+  -- con la direccion que ese PNG lleva dentro. Guardarlo en vez de
+  -- recalcularlo es lo que permite VERIFICAR: en cada consulta se compara
+  -- qr_url_codificada con la URL del enlace vigente y solo se regenera si
+  -- dejaron de coincidir. Ver services/qrEnlace.js.
+  qr_data_url        MEDIUMTEXT   NULL,
+  qr_url_codificada  VARCHAR(255) NULL,
   duracion_turno_min SMALLINT UNSIGNED NOT NULL DEFAULT 30,
+  -- Que ve el paciente al entrar por el enlace:
+  --   libre          todos los horarios disponibles del dia
+  --   orden_llegada  solo el primero libre de cada consultorio, salvo dentro
+  --                  de las 6 h previas a la jornada. Ver utils/disponibilidad.js
+  modo_agenda        ENUM('libre','orden_llegada') NOT NULL DEFAULT 'libre',
   precio_consulta    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   porcentaje_sena    TINYINT UNSIGNED NOT NULL DEFAULT 30,
   estado             ENUM('activo','suspendido') NOT NULL DEFAULT 'activo',
@@ -96,6 +116,10 @@ CREATE TABLE medicos (
   updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_medicos_user (user_id),
   UNIQUE KEY uq_medicos_matricula (matricula),
+  -- El DNI es unico porque forma parte del enlace publico. UNIQUE admite
+  -- varios NULL, asi que los profesionales que todavia no lo cargaron no
+  -- chocan entre si.
+  UNIQUE KEY uq_medicos_dni (dni),
   UNIQUE KEY uq_medicos_hash (hash_publico),
   KEY ix_medicos_especialidad (especialidad_id),
   CONSTRAINT fk_medicos_user         FOREIGN KEY (user_id)         REFERENCES users(id)          ON DELETE CASCADE,
@@ -206,6 +230,12 @@ CREATE TABLE turnos (
   -- paciente si despues lo cambio) y canal por el que entro el turno.
   telefono_whatsapp  VARCHAR(30) NULL,
   canal              ENUM('web','enlace_directo') NOT NULL DEFAULT 'web',
+  -- Acceso del paciente a SU turno en /turno/:codigo, sin cuenta ni
+  -- contrasena. El codigo ES la credencial, por eso es aleatorio, unico y el
+  -- endpoint publico esta limitado por intentos. Alfabeto sin caracteres
+  -- confundibles (nada de O/0 ni I/1) porque se dicta y se copia a mano.
+  -- NULL-able: los turnos anteriores a esta funcion no tienen codigo.
+  codigo_cancelacion CHAR(12) NULL,
   motivo_cancelacion VARCHAR(255) NULL,
   cancelado_por      ENUM('paciente','medico','admin') NULL,
   cancelado_at       DATETIME NULL,
@@ -214,6 +244,7 @@ CREATE TABLE turnos (
   activo_key         TINYINT(1) GENERATED ALWAYS AS (IF(estado = 'cancelado', NULL, 1)) STORED,
   UNIQUE KEY uq_turno_medico_slot      (medico_id, fecha, hora_inicio, activo_key),
   UNIQUE KEY uq_turno_consultorio_slot (consultorio_id, fecha, hora_inicio, activo_key),
+  UNIQUE KEY uq_turnos_codigo (codigo_cancelacion),
   KEY ix_turnos_paciente (paciente_id, fecha),
   KEY ix_turnos_medico_fecha (medico_id, fecha),
   -- Sostiene el recuento de cancelaciones previas de un paciente con un
@@ -288,11 +319,19 @@ CREATE TABLE ausencias_medico (
   medico_id         INT UNSIGNED NOT NULL,
   consultorio_id    INT UNSIGNED NOT NULL,
   fecha             DATE NOT NULL,
+  -- Motivo de lista cerrada + aclaracion libre opcional.
+  tipo_motivo       ENUM('vacaciones','congreso','curso','personal','otro') NOT NULL DEFAULT 'otro',
+  -- Agrupa los dias de una MISMA suspension (unas vacaciones, un congreso)
+  -- para poder listarla como una unidad y levantarla de una sola vez.
+  -- NULL en los dias cancelados de a uno desde la agenda diaria; para esos,
+  -- listarPeriodos arma el pseudo-id "dia-<fecha>".
+  rango_id          CHAR(12) NULL,
   motivo            VARCHAR(255) NULL,
   turnos_cancelados SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_ausencia (medico_id, consultorio_id, fecha),
   KEY ix_ausencias_fecha (fecha),
+  KEY ix_ausencias_rango (rango_id),
   CONSTRAINT fk_ausencias_medico      FOREIGN KEY (medico_id)      REFERENCES medicos(id)      ON DELETE CASCADE,
   CONSTRAINT fk_ausencias_consultorio FOREIGN KEY (consultorio_id) REFERENCES consultorios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
@@ -332,9 +371,12 @@ CREATE TABLE historias_clinicas (
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_medicos AS
 SELECT m.id, m.user_id, u.nombre, u.apellido, u.email, u.telefono, u.activo AS usuario_activo,
+       m.dni, m.genero,
        e.id AS especialidad_id, e.nombre AS especialidad,
        m.matricula, m.hash_publico, m.enlace_activo,
-       m.duracion_turno_min, m.precio_consulta, m.porcentaje_sena,
+       m.qr_data_url, m.qr_url_codificada,
+       m.duracion_turno_min, m.modo_agenda,
+       m.precio_consulta, m.porcentaje_sena,
        m.estado, m.created_at,
        -- Solo el indicador: el token cifrado no sale de la tabla.
        (m.mp_access_token IS NOT NULL) AS mercadopago_configurado,
@@ -356,3 +398,38 @@ SELECT p.id, p.user_id, p.dni, p.fecha_nacimiento, p.telefono_whatsapp,
 FROM pacientes p
 JOIN users u                ON u.id = p.user_id
 LEFT JOIN obras_sociales os ON os.id = p.obra_social_id;
+
+-- ---------------------------------------------------------------------------
+-- MIGRACIONES: registro de los .sql de db/migrations ya aplicados.
+--
+-- Por que esta aca, en el script de instalacion desde cero.
+-- ---------------------------------------------------------------------------
+-- Este archivo YA CONTIENE el resultado de todas las migraciones listadas
+-- abajo: una base recien creada con schema.sql nace al dia. Registrarlas como
+-- aplicadas hace que `npm run db:up` no tenga nada que hacer sobre una
+-- instalacion nueva, en lugar de reintentarlas todas y apoyarse en que los
+-- errores de "ya existe" se toleren.
+--
+-- REGLA AL AGREGAR UNA MIGRACION NUEVA: se hacen las dos cosas, siempre.
+--   1. Se crea db/migrations/00N_*.sql, para las bases que ya estan en uso.
+--   2. Se refleja el cambio en este archivo Y se agrega el INSERT de abajo,
+--      para las instalaciones desde cero.
+-- Omitir el paso 2 es lo que hace que `npm run db:seed` falle en un servidor
+-- nuevo con "Unknown column": el seed carga datos que el esquema no tiene.
+-- `npm run db:check` compara las dos rutas y falla si se desincronizan.
+-- ---------------------------------------------------------------------------
+CREATE TABLE migraciones (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  nombre      VARCHAR(190) NOT NULL,
+  sentencias  SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  omitidas    SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  aplicada_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_migraciones_nombre (nombre)
+) ENGINE=InnoDB;
+
+INSERT INTO migraciones (nombre, sentencias, omitidas) VALUES
+  ('001_registro_cancelaciones.sql', 0, 0),
+  ('002_modulo_agendamiento.sql',    0, 0),
+  ('003_enlace_legible.sql',         0, 0),
+  ('004_hash_publico_255.sql',       0, 0),
+  ('005_agenda_avanzada.sql',        0, 0);

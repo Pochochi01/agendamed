@@ -447,6 +447,29 @@ Bajate una copia a tu PC de vez en cuando: un backup que vive en el mismo servid
 
 ---
 
+## Antes de pushear: dos chequeos que evitan sorpresas en el servidor
+
+Se corren **en tu máquina**, antes del `git push`. Ninguno toca la base de trabajo: arman bases descartables y las borran al terminar.
+
+```bash
+cd backend
+npm run db:check          # ¿instalar de cero da lo mismo que migrar?
+npm run db:test-install   # ¿un servidor nuevo queda usable de verdad?
+```
+
+**`db:check`** compara las dos formas de llegar a una base válida:
+
+```
+servidor nuevo   ->  npm run db:migrate   (ejecuta db/schema.sql)
+base en uso      ->  npm run db:up        (aplica db/migrations/*.sql)
+```
+
+Si se agrega una migración y se olvida reflejarla en `schema.sql`, los dos caminos se separan **sin que nada avise**: en tu máquina todo anda, porque esa base llegó migrando, y en el servidor nuevo revienta con `ER_BAD_FIELD_ERROR: Unknown column '...'`. El script lista exactamente qué columna, índice o vista falta.
+
+> **Regla al agregar una migración:** se hacen las dos cosas, siempre. Se crea `db/migrations/00N_*.sql` (para las bases en uso) **y** se refleja el cambio en `db/schema.sql`, incluido su `INSERT INTO migraciones` (para las instalaciones desde cero). `db:check` falla si falta cualquiera de las dos.
+
+**`db:test-install`** hace el ensayo completo del servidor nuevo: crea la base con `schema.sql`, corre el seed, comprueba que `db:up` no tenga nada pendiente, verifica que los datos entraron completos, levanta la API en un puerto libre, registra un profesional con todos sus campos y confirma que su enlace y su QR salen bien. Si el despliegue va a fallar, falla acá.
+
 ## Actualizar la aplicación
 
 Con la opción de Git, cada despliegue nuevo es:
@@ -483,6 +506,8 @@ npm run build            # Nginx sirve el dist nuevo, no hace falta recargarlo
 | El QR lleva a una dirección vieja | Se regenera solo al detectarlo. Si el enlace cambió recién, recargá `/medico/enlace` y **volvé a imprimir la tarjeta**: el QR anterior ya no resuelve |
 | `Duplicate entry ... uq_medicos_dni` | Dos profesionales con el mismo DNI. Es intencional: el DNI es único porque forma parte del enlace público |
 | Los días suspendidos siguen ofreciendo turnos | Mirá `/medico/horarios` → *Suspensiones vigentes*. Si no figura, la suspensión no llegó a guardarse |
+| `Unknown column '...'` al correr `db:seed` | `db/schema.sql` quedó atrasado respecto de `db/migrations/`. Se detecta antes con `npm run db:check` |
+| Los pagos de un profesional dejan de andar tras migrar de servidor | Sus credenciales de MercadoPago están cifradas con `JWT_SECRET` porque no había `CRED_SECRET`. Al generar un `JWT_SECRET` nuevo dejan de poder descifrarse: hay que volver a cargarlas. El arranque avisa cuando corrés así |
 | `ER_ACCESS_DENIED_ERROR` | Usuario o clave de MySQL mal en `.env` |
 | Los pagos no se acreditan | El webhook de MercadoPago tiene que apuntar al dominio público con HTTPS |
 | Certbot falla | El DNS todavía no propagó: `nslookup tudominio.com` |

@@ -89,6 +89,28 @@ El migrador lleva registro en la tabla `migraciones`, así que se puede correr l
 | `npm run db:up` | Base existente con datos. Incremental y re-ejecutable. |
 | `npm run db:seed` | Datos de prueba. **Vacía las tablas** — nunca en producción. |
 | `npm run db:admin -- <email> <pass>` | Crea o recupera la cuenta de administrador sin tocar el resto. |
+| `npm run db:check` | Comprueba que instalar de cero dé la misma base que migrar. |
+| `npm run db:test-install` | Ensaya la instalación completa de un servidor nuevo. |
+
+### Las dos rutas tienen que coincidir
+
+Hay dos formas de llegar a una base válida, y es fácil que se separen:
+
+```
+servidor nuevo   ->  npm run db:migrate   (db/schema.sql)
+base en uso      ->  npm run db:up        (db/migrations/*.sql)
+```
+
+Si se agrega una migración y no se refleja en `schema.sql`, **nada avisa**. En la máquina de desarrollo todo anda, porque esa base llegó migrando; el servidor nuevo, que llegó por el otro camino, falla al cargar los datos:
+
+```
+npm run db:seed
+ER_BAD_FIELD_ERROR: Unknown column 'dni' in 'field list'
+```
+
+> **Regla al agregar una migración:** se hacen las dos cosas. Se crea `db/migrations/00N_*.sql` **y** se refleja el cambio en `db/schema.sql`, incluido su `INSERT INTO migraciones`, que declara la migración como ya aplicada para que `db:up` no la reintente en una instalación nueva.
+
+[`db:check`](backend/db/comparar-esquema.js) arma una base por cada camino, compara `information_schema` y falla listando qué columna, índice o vista falta. [`db:test-install`](backend/db/probar-instalacion.js) va más lejos: hace el ensayo completo del servidor nuevo —crear, sembrar, levantar la API, registrar un profesional— y comprueba que quede usable. Los dos trabajan sobre bases descartables y no tocan la de desarrollo.
 
 > **El servidor avisa si la base quedó atrás.** Al arrancar verifica que las tablas y los largos de columna coincidan con lo que el código espera ([verificarEsquema.js](backend/src/config/verificarEsquema.js)). Si falta una migración lo dice al instante, con el comando exacto, en lugar de fallar horas después en medio de una operación:
 > ```
@@ -765,6 +787,8 @@ ngrok http 4000
 - 22 aserciones sobre el CRUD del admin: orden de borrado verificado contra las FK declaradas en el esquema, uso de transacción, que no se toquen datos ajenos al tenant, la puerta de confirmación por email y el orden de las rutas frente a `/:id` — todas OK.
 - 44 aserciones sobre el módulo de agendamiento: hash no enumerable (1000 sin colisión, rechazo de ids y de inyección), normalización del WhatsApp, **la restricción del audio verificada sobre el código y el esquema reales** (sin `multer`, sin `multipart`, sin columna de audio, sin `MediaRecorder`/`Blob`/`FormData`), bloqueo de nuevas reservas al cancelar el día, aislamiento de los datos clínicos y cuentas invitadas — todas OK.
 
+- **Auditoría de formularios contra las tablas**: para cada columna de cada tabla se verificó quién la escribe, quién la valida y qué formulario la ofrece. Ninguna columna quedó sin escritor, y ninguna columna obligatoria (`NOT NULL` sin default) quedó sin una fuente —formulario o servidor—. Las que no aparecen en ningún formulario son internas a propósito: `hash_publico`, `qr_data_url`, `qr_url_codificada`, `codigo_cancelacion`, `rango_id`, `password_hash` y las credenciales cifradas de MercadoPago. El único hueco real que apareció fue el alta pública de profesionales, que no pedía `dni` ni `genero`: quedó corregido, y `db:test-install` lo comprueba registrando un médico y verificando que su enlace salga con el DNI.
+- **28 aserciones sobre la instalación en un servidor nuevo** (`npm run db:test-install`): schema.sql + seed + `db:up` sin pendientes + integridad de los datos cargados + la API arrancando y operando sobre esa base. Ambos chequeos (`db:check` y `db:test-install`) se probaron **al revés** además: quitando una columna de `schema.sql` y agregando una migración sin registrar, para confirmar que fallan cuando tienen que fallar.
 - **18 aserciones sobre la ventana de 6 horas del modo orden de llegada**, con el reloj congelado y los modelos reemplazados por datos fijos (no toca la base), incluido el ejemplo del pedido: jornada de 9 a 12, ocupado de 9 a 11, cancelados 9:20 y 10:00. Cubre el borde exacto de las 6 h (a 6 h 1 min sigue la fila, a 5 h 59 min se libera), la jornada ya empezada, el caso de dos jornadas el mismo día con solo una dentro de la ventana, que selección libre no cambie de comportamiento, y que la vista del médico muestre los 5 huecos mientras el paciente ve 1 — todas OK. Verificado además contra la API real: reservar un turno que está más atrás en la fila devuelve 409.
 - **33 aserciones de punta a punta contra la API y la base reales**, sobre las cinco partes de la tanda anterior:
   - **Enlace y QR:** el identificador sale de DNI + apellido + matrícula; el enlace ya generado no cambia entre consultas; el QR viene guardado, codifica exactamente la URL del enlace y **no se regenera** cuando ya coincide (`qrRegenerado: false`). Además se decodificó el PNG guardado con `jsQR`: lleva a la URL del enlace, carácter por carácter.

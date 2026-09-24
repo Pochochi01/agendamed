@@ -62,6 +62,22 @@ async function registro(req, res) {
 
   const passwordHash = await bcrypt.hash(password, COSTO_BCRYPT);
 
+  /*
+   * El DNI del profesional es UNIQUE en `medicos` porque forma parte de su
+   * enlace publico. Se comprueba aca para devolver un 409 con un mensaje
+   * entendible, en vez de dejar que MySQL tire ER_DUP_ENTRY y el usuario vea
+   * un 500 sin explicacion.
+   *
+   * Sigue habiendo una ventana entre esta consulta y el INSERT: dos altas
+   * simultaneas con el mismo DNI pueden pasar las dos por aca. La garantia
+   * real la da el indice UNIQUE; esto es solo para el mensaje.
+   */
+  if (rol === 'medico' && req.body.dni) {
+    if (await Medico.findByDni(req.body.dni.trim())) {
+      throw ApiError.conflict('Ya hay un profesional registrado con ese DNI');
+    }
+  }
+
   // Resolver la especialidad fuera de la transaccion (catalogo compartido).
   let especialidadId = null;
   if (rol === 'medico') {
@@ -129,6 +145,12 @@ async function registro(req, res) {
           userId: nuevoUserId,
           especialidadId,
           matricula: req.body.matricula,
+          // El enlace publico se arma con DNI + apellido + matricula, asi que
+          // el DNI se carga desde el alta: si no, el profesional nace con un
+          // enlace en el formato viejo y tiene que regenerarlo despues, con
+          // lo que el primero que haya compartido deja de servir.
+          dni: req.body.dni,
+          genero: req.body.genero || null,
           duracionTurnoMin: req.body.duracionTurnoMin || 30,
           precioConsulta: req.body.precioConsulta || 0,
           porcentajeSena: req.body.porcentajeSena ?? 30,

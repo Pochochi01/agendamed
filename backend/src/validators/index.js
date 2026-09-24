@@ -27,10 +27,16 @@ const registro = [
     .trim().notEmpty().withMessage('La matricula es obligatoria para un medico'),
   body('precioConsulta')
     .optional({ values: 'falsy' }).isFloat({ min: 0 }).withMessage('Precio invalido'),
+  // El DNI se pide a los dos roles, por motivos distintos: al paciente lo
+  // identifica (es su clave natural en el sistema), y al medico le arma el
+  // enlace publico, que se construye con DNI + apellido + matricula.
   body('dni')
-    .if(body('rol').equals('paciente'))
     .trim().notEmpty().withMessage('El DNI es obligatorio')
-    .isLength({ min: 6, max: 20 }).withMessage('DNI invalido'),
+    .isLength({ min: 6, max: 20 }).withMessage('DNI invalido')
+    .matches(/^[\d.\s-]+$/).withMessage('El DNI solo puede tener numeros'),
+  body('genero')
+    .optional({ values: 'falsy' })
+    .isIn(['masculino', 'femenino']).withMessage('Genero invalido'),
   body('fechaNacimiento')
     .optional({ values: 'falsy' }).isISO8601().withMessage('Fecha de nacimiento invalida'),
 ];

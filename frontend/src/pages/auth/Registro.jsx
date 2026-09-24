@@ -9,12 +9,14 @@ import { useAuth } from '../../context/AuthContext';
 import { inicioSegunRol } from '../../components/RutaProtegida';
 import { catalogoApi } from '../../api/servicios';
 import { Aviso, Campo } from '../../components/UI';
+import { GENEROS } from '../../utils/tratamiento';
 
 const FORM_INICIAL = {
   rol: 'paciente',
   nombre: '', apellido: '', email: '', telefono: '', password: '', password2: '',
   dni: '', fechaNacimiento: '',
-  especialidadId: '', matricula: '', precioConsulta: '', duracionTurnoMin: 30, porcentajeSena: 30,
+  especialidadId: '', matricula: '', genero: '',
+  precioConsulta: '', duracionTurnoMin: 30, porcentajeSena: 30,
 };
 
 export default function Registro() {
@@ -52,10 +54,14 @@ export default function Registro() {
       email: form.email,
       telefono: form.telefono || null,
       password: form.password,
+      // El DNI lo cargan los dos roles: identifica al paciente y le arma el
+      // enlace publico al medico (DNI + apellido + matricula).
+      dni: form.dni.trim(),
       ...(esMedico
         ? {
             especialidadId: Number(form.especialidadId),
             matricula: form.matricula,
+            genero: form.genero || null,
             precioConsulta: Number(form.precioConsulta || 0),
             duracionTurnoMin: Number(form.duracionTurnoMin),
             porcentajeSena: Number(form.porcentajeSena),
@@ -129,20 +135,20 @@ export default function Registro() {
               <Campo label="Telefono">
                 <input name="telefono" value={form.telefono} onChange={alCambiar} className="input" />
               </Campo>
-            </div>
-
-            {/* ------------------------ Campos de paciente ------------------- */}
-            {!esMedico && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Campo label="DNI" requerido>
-                  <input name="dni" value={form.dni} onChange={alCambiar} className="input" required />
-                </Campo>
+              <Campo label="DNI" requerido
+                ayuda={esMedico
+                  ? 'Con tu DNI, apellido y matricula se arma tu enlace de turnos.'
+                  : 'Es como te identifica el sistema al reservar.'}>
+                <input name="dni" value={form.dni} onChange={alCambiar} inputMode="numeric"
+                  className="input" placeholder="30123456" required />
+              </Campo>
+              {!esMedico && (
                 <Campo label="Fecha de nacimiento">
                   <input type="date" name="fechaNacimiento" value={form.fechaNacimiento}
                     onChange={alCambiar} className="input" />
                 </Campo>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* ------------------------- Campos de medico -------------------- */}
             {esMedico && (
@@ -163,6 +169,14 @@ export default function Registro() {
                   <Campo label="Matricula" requerido>
                     <input name="matricula" value={form.matricula} onChange={alCambiar}
                       className="input" placeholder="MP-12345" required />
+                  </Campo>
+                  <Campo label="Genero" ayuda="Define si el sistema te nombra Dr. o Dra.">
+                    <select name="genero" value={form.genero} onChange={alCambiar} className="input">
+                      <option value="">Prefiero no indicarlo</option>
+                      {GENEROS.map((g) => (
+                        <option key={g.valor} value={g.valor}>{g.etiqueta} ({g.titulo})</option>
+                      ))}
+                    </select>
                   </Campo>
                   <Campo label="Precio de la consulta" ayuda="Podes cambiarlo despues">
                     <input type="number" min="0" step="100" name="precioConsulta"

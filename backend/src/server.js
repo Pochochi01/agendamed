@@ -30,6 +30,41 @@ const mp = require('./config/mercadopago');
     console.warn('[mercadopago] Sin MP_ACCESS_TOKEN: los pagos corren en modo SIMULADO');
   }
 
+  /*
+   * Aviso sobre la clave con la que se cifran las credenciales de MercadoPago
+   * de cada profesional.
+   *
+   * Sin CRED_SECRET propia se usa JWT_SECRET (ver config/env.js). Eso anda,
+   * pero acopla dos cosas que se rotan por motivos distintos: JWT_SECRET se
+   * cambia para invalidar sesiones, y hacerlo dejaria los tokens guardados
+   * imposibles de descifrar. Es un problema tipico al pasar a un servidor
+   * nuevo, donde se genera un JWT_SECRET distinto y se restaura un dump con
+   * las credenciales cifradas con el viejo: los pagos dejan de funcionar y el
+   * error aparece recien cuando un paciente intenta abonar.
+   *
+   * Solo se avisa si efectivamente hay credenciales guardadas que perder.
+   */
+  if (!process.env.CRED_SECRET) {
+    try {
+      const { queryOne } = require('./config/db');
+      const fila = await queryOne(
+        'SELECT COUNT(*) AS n FROM medicos WHERE mp_access_token IS NOT NULL'
+      );
+      if (fila && Number(fila.n) > 0) {
+        console.warn(
+          `[seguridad] ${fila.n} profesional(es) tienen credenciales de MercadoPago guardadas, `
+          + 'cifradas con JWT_SECRET porque no hay CRED_SECRET definida.'
+        );
+        console.warn(
+          '[seguridad] Defini CRED_SECRET en el .env (y mantenela igual entre entornos): '
+          + 'si cambia JWT_SECRET, esas credenciales dejan de poder descifrarse.'
+        );
+      }
+    } catch {
+      // Si la consulta falla no se frena el arranque: es solo un aviso.
+    }
+  }
+
   const servidor = app.listen(port, () => {
     console.log(`[api] AgendaMed escuchando en http://localhost:${port}/api (${nodeEnv})`);
   });
